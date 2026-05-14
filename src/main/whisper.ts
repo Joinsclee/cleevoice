@@ -1,10 +1,59 @@
 import { app } from 'electron'
 import { spawn } from 'node:child_process'
-import { promises as fs, existsSync } from 'node:fs'
+import { promises as fs, existsSync, mkdirSync, readdirSync, symlinkSync, unlinkSync } from 'node:fs'
 import path from 'node:path'
 import log from 'electron-log/main'
 import { ensureModel, getModelPath, type WhisperModel } from './model-downloader'
 import { getInitialPrompt } from './whisper-prompt'
+
+/**
+ * En macOS, libggml.0.dylib tiene un path hardcoded donde busca sus backends
+ * (.so files de CPU/Metal/BLAS). Brew lo compila con
+ * /opt/homebrew/Cellar/ggml/<ver>/libexec. Nuestro script de bundling patchea
+ * binariamente ese string a /tmp/cleevoice-ggml-bx — un path neutro y
+ * predecible que poblamos en runtime con symlinks al bundle de la app.
+ *
+ * Esto se ejecuta una vez al boot (idempotente).
+ */
+const MAC_GGML_BACKEND_DIR = '/tmp/cleevoice-ggml-bx'
+
+let backendDirEnsured = false
+
+function ensureMacBackendDir(): void {
+  if (process.platform !== 'darwin' || backendDirEnsured) return
+
+  const bundledLibexec = getBundledGgmlLibexecPath()
+  if (!bundledLibexec || !existsSync(bundledLibexec)) {
+    log.warn(`bundled ggml-libexec no encontrado en ${bundledLibexec}`)
+    return
+  }
+
+  try {
+    mkdirSync(MAC_GGML_BACKEND_DIR, { recursive: true })
+    for (const file of readdirSync(bundledLibexec)) {
+      if (!file.endsWith('.so')) continue
+      const link = path.join(MAC_GGML_BACKEND_DIR, file)
+      const target = path.join(bundledLibexec, file)
+      try {
+        if (existsSync(link)) unlinkSync(link)
+        symlinkSync(target, link)
+      } catch (err) {
+        log.warn(`No se pudo symlink ${file}: ${String(err)}`)
+      }
+    }
+    backendDirEnsured = true
+    log.info(`ggml-backends symlinkeados en ${MAC_GGML_BACKEND_DIR}`)
+  } catch (err) {
+    log.error(`Setup de ggml-backend-dir falló: ${String(err)}`)
+  }
+}
+
+function getBundledGgmlLibexecPath(): string {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'whisper', 'lib', 'ggml-libexec')
+  }
+  return path.join(app.getAppPath(), 'resources/whisper/lib/ggml-libexec')
+}
 
 /**
  * Wrapper de whisper.cpp local (Fase 3).
@@ -24,15 +73,24 @@ import { getInitialPrompt } from './whisper-prompt'
  */
 
 function getBundledBinaryPath(): string {
-  const binName = process.platform === 'win32' ? 'whisper-cli-win.exe' : 'whisper-cli-mac'
-  if (app.isPackaged) {
-    return path.join(process.resourcesPath, 'whisper', binName)
+  if (process.platform === 'win32') {
+    // Layout Windows: resources/whisper-win/whisper-cli.exe + DLLs en mismo dir.
+    if (app.isPackaged) {
+      return path.join(process.resourcesPath, 'whisper-win', 'whisper-cli.exe')
+    }
+    return path.join(app.getAppPath(), 'resources/whisper-win', 'whisper-cli.exe')
   }
-  return path.join(app.getAppPath(), 'resources/whisper', binName)
+  // Mac: resources/whisper/whisper-cli-mac + lib/ + lib/ggml-libexec/.
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'whisper', 'whisper-cli-mac')
+  }
+  return path.join(app.getAppPath(), 'resources/whisper', 'whisper-cli-mac')
 }
 
 function getFallbackBinaryPath(): string | null {
-  // Brew install whisper-cpp lo deja acá.
+  if (process.platform !== 'darwin') return null
+  // Sólo usamos brew como fallback en dev en Mac. En empaquetado el bundle SIEMPRE
+  // está, así que esta rama nunca debería dispararse en producción.
   const brewPath = '/opt/homebrew/bin/whisper-cli'
   if (existsSync(brewPath)) return brewPath
   const intelBrewPath = '/usr/local/bin/whisper-cli'
@@ -43,11 +101,16 @@ function getFallbackBinaryPath(): string | null {
 export function resolveWhisperBinary(): string {
   const bundled = getBundledBinaryPath()
   if (existsSync(bundled)) return bundled
-  const fallback = getFallbackBinaryPath()
-  if (fallback) return fallback
+  // En empaquetado no caemos a brew — si el bundle falta es un bug de build.
+  if (!app.isPackaged) {
+    const fallback = getFallbackBinaryPath()
+    if (fallback) return fallback
+  }
   throw new Error(
-    `whisper-cli no encontrado. Esperado en ${bundled} o /opt/homebrew/bin/whisper-cli. ` +
-      `Instalá con: brew install whisper-cpp`
+    `whisper-cli no encontrado. Esperado en ${bundled}. ` +
+      (process.platform === 'darwin'
+        ? 'Corré: npm run bundle:whisper:mac (requiere brew install whisper-cpp).'
+        : 'Corré: npm run bundle:whisper:win (descarga la release oficial).')
   )
 }
 
@@ -102,6 +165,10 @@ export async function transcribeLocal(
   if (effectivePrompt && effectivePrompt.trim().length > 0) {
     args.push('--prompt', effectivePrompt)
   }
+
+  // En Mac aseguramos que /tmp/cleevoice-ggml-bx exista con los backends del bundle
+  // antes de spawnear (libggml.0.dylib lo busca por path hardcoded patchado).
+  ensureMacBackendDir()
 
   log.info(`whisper-cli ${args.map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ')}`)
 

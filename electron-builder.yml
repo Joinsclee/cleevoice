@@ -8,45 +8,78 @@ files:
   - '!**/.vscode/*'
   - '!src/*'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
-  - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md,INSTALL.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - '!scripts/*'
+  - '!build/icon.iconset/*'
 asarUnpack:
   - resources/**
   - node_modules/ffmpeg-static/**
   - node_modules/better-sqlite3/**
+# Recursos copiados directo a Contents/Resources/ del .app. Los bundles de
+# whisper viven acá (no en app.asar) porque son ejecutables/dylibs nativos
+# que necesitan ser cargables por dyld.
 extraResources:
   - from: resources/whisper/
     to: whisper/
-    filter:
-      - '**/*'
+    filter: ['**/*']
+  - from: resources/whisper-win/
+    to: whisper-win/
+    filter: ['**/*']
   - from: resources/icons/
     to: icons/
-    filter:
-      - '**/*'
+    filter: ['**/*']
 mac:
   category: public.app-category.productivity
+  # En esta fase distribuimos sólo arm64 (Apple Silicon — todos los Mac M-series).
+  # El bundle de whisper-cli-mac que generamos con scripts/bundle-whisper-mac.sh
+  # contiene libs específicas de arquitectura. Para soportar Intel x64 hay que
+  # generar otro bundle desde un Mac Intel o cross-compile.
   target:
     - target: dmg
       arch:
         - arm64
-        - x64
-  hardenedRuntime: true
+  hardenedRuntime: false   # sin Developer ID no se notariza igual
   gatekeeperAssess: false
+  identity: null           # firma ad-hoc, no Developer ID
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
+dmg:
+  title: 'CleeVoice ${version}'
+  artifactName: 'CleeVoice-${version}-arm64.dmg'
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+  window:
+    width: 540
+    height: 380
 win:
   target:
     - target: nsis
       arch:
         - x64
   publisherName: JoinsClee
+  artifactName: 'CleeVoice-${version}-x64.exe'
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: CleeVoice
 linux:
   target:
     - AppImage
   category: Utility
 npmRebuild: false
-publish:
-  provider: github
-  owner: JoinsClee
-  repo: cleevoice
+# Sin auto-update por ahora — distribuimos manualmente vía DMG/EXE.
+# Para activarlo: subir release a GitHub y restaurar este bloque.
+# publish:
+#   provider: github
+#   owner: JoinsClee
+#   repo: cleevoice
