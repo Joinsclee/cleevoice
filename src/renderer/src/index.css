@@ -4,6 +4,21 @@
   --color-clee-primary: #7c3aed;
   --color-clee-accent: #2563eb;
   --color-clee-bg: #0b0b14;
+
+  /* Easings inspirados en spring physics — más vivos que los lineales/sigmoid de Tailwind. */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-out-soft: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out-soft: cubic-bezier(0.65, 0, 0.35, 1);
+
+  --animate-shimmer: shimmer 1.6s linear infinite;
+  --animate-shimmer-slow: shimmer 2.4s linear infinite;
+  --animate-blob: blob 3.4s ease-in-out infinite;
+  --animate-draw-check: draw-check 420ms var(--ease-out-soft) forwards;
+  --animate-pop-in: pop-in 320ms var(--ease-spring);
+  --animate-fade-in: fade-in 220ms var(--ease-out-soft);
+  --animate-glow: glow 1.6s ease-in-out infinite alternate;
+  --animate-dot-bounce: dot-bounce 1.2s ease-in-out infinite;
+  --animate-shake: shake 360ms var(--ease-in-out-soft);
 }
 
 html,
@@ -27,4 +42,122 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/*
+ * Shimmer: gradiente que cruza horizontalmente — usado durante processing/transcribing
+ * para indicar "trabajando" sin distraer.
+ */
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/*
+ * Blob: pulsación orgánica usada en el halo del dot mientras se graba/procesa.
+ * Más natural que un scale lineal — combina escala + opacidad asimétrica.
+ */
+@keyframes blob {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scale(1.45);
+    opacity: 0.15;
+  }
+}
+
+/*
+ * Draw-check: dibuja el ✓ del estado "Pegado" como si lo trazaras a mano.
+ * Usa stroke-dasharray + stroke-dashoffset (truco SVG estándar).
+ */
+@keyframes draw-check {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/*
+ * Pop-in: entrada con un overshoot leve (gracias al ease-spring). Aparece para
+ * el pill del overlay al activarse.
+ */
+@keyframes pop-in {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(-1px) scale(1.01);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/*
+ * Glow: pulsación de sombra del borde — el pill "respira" mientras está activo.
+ */
+@keyframes glow {
+  0% {
+    box-shadow:
+      0 0 0 0 currentColor,
+      0 18px 40px -12px rgb(0 0 0 / 0.55);
+  }
+  100% {
+    box-shadow:
+      0 0 24px 2px currentColor,
+      0 18px 40px -12px rgb(0 0 0 / 0.55);
+  }
+}
+
+/*
+ * Dot bounce: tres puntos secuenciales para "Transcribiendo…".
+ * Cada dot tiene su propio delay (aplicado inline).
+ */
+@keyframes dot-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+/*
+ * Shake: feedback de error breve. No demasiado agresivo (max 4px).
+ */
+@keyframes shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20%,
+  60% {
+    transform: translateX(-4px);
+  }
+  40%,
+  80% {
+    transform: translateX(4px);
+  }
 }

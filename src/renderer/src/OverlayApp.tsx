@@ -1,14 +1,25 @@
 import { useEffect, useRef, useState } from 'react'
+import { Waveform } from './overlay/Waveform'
+import {
+  BouncingDots,
+  DrawnCheck,
+  ErrorIcon,
+  PulseDot,
+  SparkleBurst,
+  ThinkingBars,
+  WarningTriangle
+} from './overlay/StatusIcon'
 
 /**
- * Overlay flotante: 🎤 grabando → ⚙️ procesando → 📝 transcribiendo → ⌨️ pegando → ✓
+ * Overlay flotante con animaciones premium (post-Fase 9).
  *
- * Estados (Fase 4):
- *   - idle / recording / processing / transcribing  (igual que Fase 3)
- *   - pasting:        breve "⌨️ Pegando…" mientras se hace Cmd+V sintético
- *   - pasted-ok:      "✓ Pegado" en verde durante 1.5s
- *   - pasted-fallback el texto a la vista + "presioná Cmd+V" — más tiempo
- *   - error:          rojo con mensaje
+ * Cada estado tiene:
+ *   - su propio color de acento (texto + halo + borde)
+ *   - su propio icono animado (PulseDot, Waveform, BouncingDots, SparkleBurst, DrawnCheck…)
+ *   - entrada con pop-in / fade dependiendo del flujo
+ *
+ * El pill se redimensiona automáticamente al contenido — no hay width fijo;
+ * usamos transition-[width] sobre el contenedor para que el cambio sea suave.
  */
 
 type UiState =
@@ -44,12 +55,91 @@ function formatTime(ms: number): string {
   return `${mm}:${ss}`
 }
 
+/**
+ * Mapea estado → tinte de acento. Usamos OKLCH approximate de Tailwind v4
+ * pero pasamos hex directo donde lo necesitamos en canvas.
+ */
+function accentForState(state: UiState): {
+  border: string
+  text: string
+  glow: string
+  waveColor: string
+} {
+  switch (state) {
+    case 'recording':
+      return {
+        border: 'border-red-500/40',
+        text: 'text-red-300',
+        glow: 'shadow-[0_0_24px_-2px_rgba(248,113,113,0.5)]',
+        waveColor: 'rgb(248 113 113)'
+      }
+    case 'processing':
+      return {
+        border: 'border-amber-400/40',
+        text: 'text-amber-200',
+        glow: 'shadow-[0_0_24px_-2px_rgba(251,191,36,0.45)]',
+        waveColor: 'rgb(251 191 36)'
+      }
+    case 'transcribing':
+      return {
+        border: 'border-violet-400/40',
+        text: 'text-violet-200',
+        glow: 'shadow-[0_0_24px_-2px_rgba(167,139,250,0.55)]',
+        waveColor: 'rgb(167 139 250)'
+      }
+    case 'cleaning':
+      return {
+        border: 'border-fuchsia-400/40',
+        text: 'text-fuchsia-200',
+        glow: 'shadow-[0_0_24px_-2px_rgba(232,121,249,0.5)]',
+        waveColor: 'rgb(232 121 249)'
+      }
+    case 'pasting':
+      return {
+        border: 'border-sky-400/40',
+        text: 'text-sky-200',
+        glow: 'shadow-[0_0_24px_-2px_rgba(125,211,252,0.5)]',
+        waveColor: 'rgb(125 211 252)'
+      }
+    case 'pasted-ok':
+      return {
+        border: 'border-emerald-400/50',
+        text: 'text-emerald-300',
+        glow: 'shadow-[0_0_28px_-2px_rgba(52,211,153,0.55)]',
+        waveColor: 'rgb(52 211 153)'
+      }
+    case 'pasted-fallback':
+      return {
+        border: 'border-yellow-400/50',
+        text: 'text-yellow-200',
+        glow: 'shadow-[0_0_24px_-2px_rgba(250,204,21,0.45)]',
+        waveColor: 'rgb(250 204 21)'
+      }
+    case 'error':
+      return {
+        border: 'border-red-400/50',
+        text: 'text-red-300',
+        glow: 'shadow-[0_0_24px_-2px_rgba(248,113,113,0.5)]',
+        waveColor: 'rgb(248 113 113)'
+      }
+    default:
+      return {
+        border: 'border-white/10',
+        text: 'text-neutral-300',
+        glow: 'shadow-2xl',
+        waveColor: 'rgb(115 115 115)'
+      }
+  }
+}
+
 export function OverlayApp(): React.JSX.Element {
   const [uiState, setUiState] = useState<UiState>('idle')
   const [elapsedMs, setElapsedMs] = useState(0)
   const [resultText, setResultText] = useState('')
   const [errorMsg, setErrorMsg] = useState('')
   const [pasteReason, setPasteReason] = useState<string | undefined>()
+  // Stream separado en state para que React re-renderice Waveform cuando arranca/para.
+  const [activeStream, setActiveStream] = useState<MediaStream | null>(null)
 
   const recorderRef = useRef<MediaRecorder | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -68,6 +158,7 @@ export function OverlayApp(): React.JSX.Element {
   function releaseStream(): void {
     streamRef.current?.getTracks().forEach((t) => t.stop())
     streamRef.current = null
+    setActiveStream(null)
   }
 
   async function beginCapture(): Promise<void> {
@@ -88,6 +179,7 @@ export function OverlayApp(): React.JSX.Element {
         }
       })
       streamRef.current = stream
+      setActiveStream(stream)
 
       const recorder = new MediaRecorder(stream, { mimeType: mime })
       chunksRef.current = []
@@ -170,7 +262,6 @@ export function OverlayApp(): React.JSX.Element {
     })
 
     const offCleaned = window.api.onCleaned(({ text }) => {
-      // Reemplaza el texto raw por el limpio para mostrar al final.
       setResultText(text)
     })
 
@@ -206,109 +297,137 @@ export function OverlayApp(): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const accent = accentForState(uiState)
   const recording = uiState === 'recording'
-  const processing = uiState === 'processing'
-  const transcribing = uiState === 'transcribing'
-  const cleaning = uiState === 'cleaning'
-  const pasting = uiState === 'pasting'
-  const pastedOk = uiState === 'pasted-ok'
-  const pastedFallback = uiState === 'pasted-fallback'
   const showError = uiState === 'error'
 
-  let label: string
-  if (recording) label = `🎤 Grabando ${formatTime(elapsedMs)}`
-  else if (processing) label = '⚙️ Procesando audio…'
-  else if (transcribing) label = '📝 Transcribiendo…'
-  else if (cleaning) label = '✨ Limpiando con IA…'
-  else if (pasting) label = '⌨️ Pegando…'
-  else if (pastedOk) label = '✓ Pegado'
-  else if (pastedFallback) {
+  // ─── Render por estado ────────────────────────────────────────────────────
+  // Cada estado tiene su propio bloque para que el layout sea óptimo.
+
+  let content: React.JSX.Element
+  if (uiState === 'idle') {
+    content = (
+      <>
+        <PulseDot />
+        <span className="text-sm font-medium tracking-wide">CleeVoice</span>
+      </>
+    )
+  } else if (recording) {
+    content = (
+      <>
+        <PulseDot active />
+        <Waveform stream={activeStream} bars={32} width={180} height={26} color={accent.waveColor} />
+        <span className="font-mono text-xs tabular-nums text-neutral-300">
+          {formatTime(elapsedMs)}
+        </span>
+      </>
+    )
+  } else if (uiState === 'processing') {
+    content = (
+      <>
+        <BouncingDots />
+        <span className="text-sm font-medium tracking-wide">Procesando audio</span>
+      </>
+    )
+  } else if (uiState === 'transcribing') {
+    content = (
+      <>
+        <ThinkingBars />
+        <span className="text-sm font-medium tracking-wide">Transcribiendo</span>
+      </>
+    )
+  } else if (uiState === 'cleaning') {
+    content = (
+      <>
+        <SparkleBurst />
+        <span className="text-sm font-medium tracking-wide">Limpiando con IA</span>
+      </>
+    )
+  } else if (uiState === 'pasting') {
+    content = (
+      <>
+        <BouncingDots />
+        <span className="text-sm font-medium tracking-wide">Pegando</span>
+      </>
+    )
+  } else if (uiState === 'pasted-ok') {
+    content = (
+      <>
+        <DrawnCheck />
+        <span className="text-sm font-medium tracking-wide">Pegado</span>
+      </>
+    )
+  } else if (uiState === 'pasted-fallback') {
     const tip =
       pasteReason === 'no-accessibility'
-        ? 'Activá Accesibilidad → Cmd+V para pegar'
-        : 'Texto en portapapeles · Cmd+V para pegar'
-    label = `${tip}  ·  "${resultText}"`
-  } else if (showError) label = `⚠️ ${errorMsg}`
-  else label = 'CleeVoice'
+        ? 'Activá Accesibilidad · Cmd+V para pegar'
+        : 'En portapapeles · Cmd+V para pegar'
+    content = (
+      <>
+        <WarningTriangle />
+        <div className="flex flex-col leading-tight">
+          <span className="text-[11px] font-medium uppercase tracking-wider opacity-80">{tip}</span>
+          <span className="text-sm text-white/90 line-clamp-1" title={resultText}>
+            {resultText || '(sin texto)'}
+          </span>
+        </div>
+      </>
+    )
+  } else {
+    // error
+    content = (
+      <>
+        <ErrorIcon />
+        <span className="text-sm font-medium tracking-wide">{errorMsg || 'Error inesperado'}</span>
+      </>
+    )
+  }
 
-  const dotClass = recording
-    ? 'bg-red-500'
-    : processing
-      ? 'bg-amber-400'
-      : transcribing
-        ? 'bg-violet-400'
-        : cleaning
-          ? 'bg-fuchsia-400'
-          : pasting
-            ? 'bg-sky-400'
-            : pastedOk
-              ? 'bg-emerald-400'
-              : pastedFallback
-                ? 'bg-yellow-400'
-                : showError
-                  ? 'bg-red-400'
-                  : 'bg-neutral-500'
+  const isWorking =
+    uiState === 'processing' ||
+    uiState === 'transcribing' ||
+    uiState === 'cleaning' ||
+    uiState === 'pasting'
 
-  const haloClass = recording
-    ? 'bg-red-400'
-    : processing
-      ? 'bg-amber-400'
-      : transcribing
-        ? 'bg-violet-400'
-        : cleaning
-          ? 'bg-fuchsia-400'
-          : pasting
-            ? 'bg-sky-400'
-            : ''
-
-  const borderClass = recording
-    ? 'border-red-500/30'
-    : processing
-      ? 'border-amber-400/30'
-      : transcribing
-        ? 'border-violet-400/30'
-        : cleaning
-          ? 'border-fuchsia-400/30'
-          : pasting
-            ? 'border-sky-400/30'
-            : pastedOk
-              ? 'border-emerald-400/40'
-              : pastedFallback
-                ? 'border-yellow-400/40'
-                : showError
-                  ? 'border-red-400/40'
-                  : 'border-white/10'
-
-  const opacityScaleClass =
-    uiState === 'idle' ? 'scale-95 opacity-80' : 'scale-100 opacity-100'
-
+  // key={uiState} desmonta/remonta el pill al cambiar — dispara la animación pop-in.
   return (
     <div className="flex h-screen w-screen items-center justify-center bg-transparent p-3">
       <div
-        className={`flex max-w-full items-center gap-3 rounded-2xl border bg-neutral-900/85 px-5 py-3 text-white shadow-2xl backdrop-blur-xl transition-all duration-200 ${borderClass} ${opacityScaleClass}`}
+        key={uiState}
+        className={
+          'relative flex items-center gap-3 overflow-hidden rounded-full border bg-neutral-950/80 px-5 py-2.5 backdrop-blur-xl transition-colors duration-200 ' +
+          accent.border +
+          ' ' +
+          accent.text +
+          ' ' +
+          accent.glow +
+          (uiState === 'idle' ? ' opacity-70' : '') +
+          (showError ? ' animate-[shake_360ms_cubic-bezier(0.65,0,0.35,1)]' : '')
+        }
+        style={{
+          animation:
+            uiState !== 'idle' ? 'pop-in 320ms cubic-bezier(0.34, 1.56, 0.64, 1)' : undefined
+        }}
       >
-        <span className="relative inline-flex h-2.5 w-2.5 shrink-0">
-          {haloClass && (
-            <span
-              className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-75 ${haloClass}`}
-            />
-          )}
-          <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${dotClass}`} />
-        </span>
-        <span
-          className={
-            'text-sm font-medium tabular-nums tracking-wide ' +
-            (pastedFallback ? 'line-clamp-2 text-left leading-snug' : '')
-          }
-          title={pastedFallback || pastedOk ? resultText : undefined}
-        >
-          {label}
-        </span>
         {/*
-          No agregamos botón aquí: el overlay tiene setIgnoreMouseEvents(true)
-          (click-through para no robar foco). El main abre el panel de
-          Accesibilidad automáticamente la primera vez que falta el permiso.
-        */}
+         * Shimmer pasivo en estados "trabajando". Una banda diagonal cruza el pill
+         * cada 1.6s para que se vea claramente "vivo" sin distraer.
+         */}
+        {isWorking && (
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-0 overflow-hidden rounded-full"
+          >
+            <span
+              className="absolute inset-y-0 -left-1/3 w-1/2 opacity-40"
+              style={{
+                background: `linear-gradient(90deg, transparent, ${accent.waveColor}55, transparent)`,
+                animation: 'shimmer 1.6s linear infinite'
+              }}
+            />
+          </span>
+        )}
+        <div className="relative z-10 flex items-center gap-3">{content}</div>
       </div>
     </div>
   )
