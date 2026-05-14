@@ -200,7 +200,9 @@ async function runPostAudioPipeline(wavPath: string, audioMs: number): Promise<v
   log.info(`Transcribiendo ${wavPath} (audio ${audioMs}ms)…`)
 
   try {
-    const result = await transcribeLocal(wavPath, { language: 'es', model: 'base' })
+    // Default Fase 3.5: modelo `small` (460MB) — notablemente mejor en español que `base`.
+    // Fase 5 expondrá esto en Settings para que el usuario elija según su máquina.
+    const result = await transcribeLocal(wavPath, { language: 'es', model: 'small' })
     log.info(`Texto: "${result.text}"`)
     sendToOverlay('transcribed', {
       text: result.text,

@@ -4,6 +4,7 @@ import { promises as fs, existsSync } from 'node:fs'
 import path from 'node:path'
 import log from 'electron-log/main'
 import { ensureModel, getModelPath, type WhisperModel } from './model-downloader'
+import { getInitialPrompt } from './whisper-prompt'
 
 /**
  * Wrapper de whisper.cpp local (Fase 3).
@@ -84,6 +85,10 @@ export async function transcribeLocal(
     throw new Error(`Modelo no se descargó correctamente: ${modelPath}`)
   }
 
+  // Si quien llama no pasó un prompt explícito, usamos el prompt-context bake-in
+  // de JoinsClee. Cualquier valor explícito (vacío incluido) lo respeta.
+  const effectivePrompt = options.prompt ?? getInitialPrompt(language)
+
   const args = [
     '-m',
     modelPath,
@@ -94,8 +99,8 @@ export async function transcribeLocal(
     '--no-prints',
     '--output-txt'
   ]
-  if (options.prompt) {
-    args.push('--prompt', options.prompt)
+  if (effectivePrompt && effectivePrompt.trim().length > 0) {
+    args.push('--prompt', effectivePrompt)
   }
 
   log.info(`whisper-cli ${args.map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ')}`)
