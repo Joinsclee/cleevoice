@@ -77,6 +77,10 @@ linux:
     - AppImage
   category: Utility
 npmRebuild: false
+# Hook que firma ad-hoc el .app después de empaquetar. Sin esto, macOS Sonoma+
+# rechaza la app sin firma con "está dañado" en lugar del flow estándar de
+# "no se puede verificar el desarrollador → Abrir igual".
+afterPack: scripts/after-pack.mjs
 # Auto-updater apunta a GitHub Releases del repo cleevoice.
 # Para repos privados, electron-builder lee GH_TOKEN del entorno al publicar
 # y embebe la URL canonical en app-update.yml para el cliente.
