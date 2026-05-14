@@ -12,13 +12,29 @@ import {
 } from './overlay-window'
 import { saveAndConvertWebm } from './audio'
 import { transcribeLocal } from './whisper'
-import { onDownloadProgress } from './model-downloader'
+import {
+  ensureModel,
+  getModelPath,
+  getModelsDir,
+  isModelReady,
+  onDownloadProgress,
+  type WhisperModel
+} from './model-downloader'
 import {
   pasteText,
   hasAccessibilityPermission,
   openAccessibilitySettings,
   type PasteResult
 } from './paste'
+import {
+  getAllSettings,
+  getSetting,
+  onSettingsChange,
+  updateSettings,
+  type CleeVoiceSettings
+} from './settings'
+import { promises as fs } from 'node:fs'
+import path from 'node:path'
 
 // electron-log como sustituto de console.* (regla del proyecto desde Fase 1).
 log.initialize()
@@ -124,10 +140,40 @@ function createMainWindow(): void {
 }
 
 function notify(title: string, body: string): void {
-  if (Notification.isSupported()) {
+  if (Notification.isSupported() && getSetting('showNotifications')) {
     new Notification({ title, body, silent: false }).show()
   }
   log.info(`Notify: ${title} — ${body}`)
+}
+
+/** Lista de modelos con su estado actual (descargado o no). */
+const MODEL_METADATA: Record<WhisperModel, { sizeMb: number }> = {
+  tiny: { sizeMb: 75 },
+  base: { sizeMb: 140 },
+  small: { sizeMb: 460 },
+  medium: { sizeMb: 1500 }
+}
+
+function listModels(): {
+  name: WhisperModel
+  sizeMb: number
+  downloaded: boolean
+  path: string
+}[] {
+  const dir = getModelsDir()
+  return (Object.keys(MODEL_METADATA) as WhisperModel[]).map((name) => ({
+    name,
+    sizeMb: MODEL_METADATA[name].sizeMb,
+    downloaded: isModelReady(name),
+    path: path.join(dir, `ggml-${name}.bin`)
+  }))
+}
+
+/** Difunde el snapshot completo a todas las ventanas que tengan el listener. */
+function broadcastSettings(settings: CleeVoiceSettings): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send('settings:changed', settings)
+  }
 }
 
 function ensureMicrophonePermission(): boolean {
@@ -209,9 +255,14 @@ async function runPostAudioPipeline(wavPath: string, audioMs: number): Promise<v
   log.info(`Transcribiendo ${wavPath} (audio ${audioMs}ms)…`)
 
   try {
-    // Default Fase 3.5: modelo `small` (460MB) — notablemente mejor en español que `base`.
-    // Fase 5 expondrá esto en Settings para que el usuario elija según su máquina.
-    const result = await transcribeLocal(wavPath, { language: 'es', model: 'small' })
+    // Settings live: el usuario puede cambiar modelo/idioma desde la UI sin reiniciar.
+    const settings = getAllSettings()
+    const result = await transcribeLocal(wavPath, {
+      language: settings.language,
+      model: settings.model,
+      // customPrompt opcional concatenado al prompt-context base (Fase 7 lo expone).
+      ...(settings.customPrompt.trim().length > 0 ? { prompt: settings.customPrompt } : {})
+    })
     log.info(`Texto: "${result.text}"`)
     sendToOverlay('transcribed', {
       text: result.text,
@@ -293,10 +344,44 @@ app.whenReady().then(() => {
     }
   })
 
-  const hotkeyResult = registerToggleHotkey(DEFAULT_HOTKEY, toggleRecording)
+  const initialHotkey = getSetting('hotkey') || DEFAULT_HOTKEY
+  const hotkeyResult = registerToggleHotkey(initialHotkey, toggleRecording)
   if (!hotkeyResult.registered) {
-    log.error(`Hotkey ${DEFAULT_HOTKEY} no se pudo registrar: ${hotkeyResult.reason}`)
+    log.error(`Hotkey ${initialHotkey} no se pudo registrar: ${hotkeyResult.reason}`)
+    // Si el accelerator guardado colisiona, restauramos el default.
+    if (initialHotkey !== DEFAULT_HOTKEY) {
+      log.warn(`Restaurando hotkey al default: ${DEFAULT_HOTKEY}`)
+      const fallback = registerToggleHotkey(DEFAULT_HOTKEY, toggleRecording)
+      if (fallback.registered) updateSettings({ hotkey: DEFAULT_HOTKEY })
+    }
   }
+
+  // Cuando cambia un setting que necesita re-acción del runtime, lo aplicamos acá:
+  //  - hotkey:    re-register
+  //  - autostart: app.setLoginItemSettings
+  //  - tray:      rebuild menú con engine label nuevo
+  // El resto (model/language/customPrompt/dictionary) se lee al vuelo en el pipeline.
+  onSettingsChange((next, prev) => {
+    if (next.hotkey !== prev.hotkey) {
+      const r = registerToggleHotkey(next.hotkey, toggleRecording)
+      if (!r.registered) {
+        log.error(`Hotkey ${next.hotkey} no se pudo registrar — volviendo a ${prev.hotkey}.`)
+        registerToggleHotkey(prev.hotkey, toggleRecording)
+        // Notificar al usuario por el panel de settings.
+        broadcastSettings({ ...next, hotkey: prev.hotkey })
+        return
+      }
+      log.info(`Hotkey actualizado a ${next.hotkey}`)
+    }
+    if (next.autostart !== prev.autostart) {
+      app.setLoginItemSettings({ openAtLogin: next.autostart })
+      log.info(`autostart=${next.autostart}`)
+    }
+    broadcastSettings(next)
+  })
+
+  // Aplica el autostart al boot por si cambió fuera del runtime (raro pero limpio).
+  app.setLoginItemSettings({ openAtLogin: getSetting('autostart') })
 
   // Reenviamos progreso de descarga del modelo al overlay (UI puede mostrar barra
   // en Fase 5 cuando exista pantalla de Settings — por ahora sólo va a logs).
@@ -347,6 +432,46 @@ app.whenReady().then(() => {
       `Permiso de accesibilidad: ${hasAccessibilityPermission() ? 'granted' : 'NO concedido'}`
     )
   }
+
+  // ─── Handlers IPC de Settings (Fase 5) ────────────────────────────────────
+  ipcMain.handle('settings:getAll', () => getAllSettings())
+  ipcMain.handle('settings:update', (_e, patch: Partial<CleeVoiceSettings>) =>
+    updateSettings(patch)
+  )
+  ipcMain.handle('settings:reset', () => {
+    // Reset suave: borramos sólo los campos editables; los listeners re-aplican.
+    return updateSettings({
+      hotkey: DEFAULT_HOTKEY,
+      engine: 'local',
+      model: 'small',
+      language: 'es',
+      autostart: false,
+      showNotifications: true,
+      cleanupEnabled: false,
+      customPrompt: ''
+    })
+  })
+
+  // ─── Handlers IPC de Modelos (Fase 5) ─────────────────────────────────────
+  ipcMain.handle('models:list', () => listModels())
+  ipcMain.handle('models:download', async (_e, name: WhisperModel) => {
+    try {
+      const p = await ensureModel(name)
+      return { ok: true, path: p }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+  ipcMain.handle('models:delete', async (_e, name: WhisperModel) => {
+    try {
+      const p = getModelPath(name)
+      await fs.unlink(p)
+      log.info(`Modelo eliminado: ${p}`)
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().every((w) => !w.isVisible())) {
