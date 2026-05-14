@@ -1,97 +1,107 @@
 # Instalación de CleeVoice — Equipo JoinsClee
 
-Esta es la guía corta para que cualquier persona del equipo instale CleeVoice en su Mac o Windows y empiece a dictar en menos de 5 minutos.
+Guía para que cualquier persona del equipo instale CleeVoice en su Mac o Windows y empiece a dictar en menos de 5 minutos.
 
 ---
 
 ## macOS (Apple Silicon — M1, M2, M3, M4)
 
-> **Importante:** esta build es **solo para Mac con chip Apple Silicon**. Si tenés un Mac Intel, avisanos para que generemos otra build.
+> **Importante:** estas builds son solo para Mac con chip Apple Silicon. Para Intel x64 hablar con Cristhian.
 
-### 1. Descargar e instalar
+### Paso 1 — Bajar los dos archivos
 
-1. Bajá el archivo `CleeVoice-0.1.0-arm64.dmg` que te compartió Cristhian.
-2. Doble click en el DMG → arrastrá **CleeVoice** dentro de la carpeta **Applications**.
-3. Ejectá el DMG.
+Desde la [página del último release](https://github.com/Joinsclee/cleevoice/releases/latest):
 
-### 2. Primera apertura (importante)
+1. **`CleeVoice-0.1.4-arm64.dmg`** — la app
+2. **`Liberar-CleeVoice.command`** — script para destrabar macOS (1 doble-click)
 
-Como esta app no está firmada con un Apple Developer ID (la firma cuesta $99/año, no la usamos para distribución interna), macOS la va a bloquear la primera vez con un mensaje tipo *"no se puede verificar el desarrollador"*.
+### Paso 2 — Instalar la app
 
-**Para abrirla:**
+1. Doble click en el **DMG** → arrastrá **CleeVoice** a **Aplicaciones**.
+2. Ejectá el DMG.
 
-- **Opción A (más fácil):** click derecho sobre `CleeVoice.app` en `/Applications` → **"Abrir"** → en el diálogo "no se pudo verificar", click en **"Abrir"** otra vez. Solo hay que hacerlo la primera vez.
-- **Opción B (si "Abrir" no aparece):** abrí Preferencias del Sistema → Privacidad y seguridad → bajá hasta abajo, vas a ver *"CleeVoice fue bloqueada"* → click **"Abrir igualmente"**.
+### Paso 3 — Liberar la app de la cuarentena de macOS
 
-### 3. Permisos macOS (vienen en orden cuando la usás por primera vez)
+> *¿Por qué?* macOS pone un atributo de "cuarentena" a todo lo que se baja de internet. Como CleeVoice no está firmada con un Apple Developer ID ($99/año), si abrís la app directo, macOS muestra *"Apple no ha podido verificar..."* y exige ir a System Settings → Privacy → "Abrir igualmente". El script de abajo te evita esa fricción.
 
-CleeVoice pide **dos permisos** del sistema:
+1. Doble click en **`Liberar-CleeVoice.command`** que descargaste.
+2. Se abre una ventana de terminal con un mensaje. Esperá 3 segundos.
+3. CleeVoice se abre solo. **Listo, ya no vuelve a aparecer ese diálogo.**
 
-1. **Micrófono** — cuando dictes por primera vez. Aceptá el diálogo.
-2. **Accesibilidad** — necesario para que el texto se pegue automáticamente donde está tu cursor. macOS te va a mostrar un panel cuando lo necesite. Activá el toggle de **CleeVoice** en Preferencias del Sistema → Privacidad y seguridad → Accesibilidad.
+> Si macOS te bloquea el `.command` con "no se puede abrir porque viene de un desarrollador no identificado", **click derecho → Abrir → Abrir igual**. Solo una vez.
+
+### Paso 4 — Permisos del sistema (cuando los pida)
+
+CleeVoice pide dos permisos macOS la primera vez que los usa:
+
+1. **Micrófono** — al primer dictado. Aceptá.
+2. **Accesibilidad** — para que el texto se pegue donde tenés el cursor. Activá el toggle de CleeVoice en *System Settings → Privacy & Security → Accesibilidad*.
 
 Si saltás el de accesibilidad, igual funciona: el texto queda en el portapapeles y vos hacés `Cmd+V` manual. El overlay te lo recuerda.
 
-### 4. Empezar a dictar
+### Paso 5 — Empezar a dictar
 
-- CleeVoice vive en la **menubar** (esquina superior derecha, junto a la hora). NO aparece en el Dock — eso es intencional.
+- CleeVoice vive en la **menubar** (esquina superior derecha, junto a la hora). NO aparece en el Dock.
 - **Hotkey por defecto:** `⌘ + Shift + Espacio`
-- Estando en cualquier app (Gmail, Slack, Notion, Skool, GoHighLevel…), presioná el hotkey → habla → presionalo de nuevo → el texto aparece pegado donde estabas escribiendo.
+- Estando en cualquier app (Gmail, Slack, Notion, Skool, GoHighLevel...) presioná el hotkey → habla → presionalo de nuevo → el texto aparece pegado donde estabas escribiendo.
 
-### 5. Primer arranque: descarga del modelo
+### Primer arranque: descarga del modelo (1-2 min, una vez)
 
-La primera vez que dictes, CleeVoice baja **`ggml-small.bin` (~460MB)** desde Hugging Face. Esto pasa una sola vez. Mientras baja, vas a ver una notificación "CleeVoice: descargando modelo". Esperá 1-2 minutos según tu conexión.
-
-Después de eso, **todo es local** — el audio nunca sale de tu Mac. Privado y gratis.
+La primera vez que dictes, CleeVoice baja **`ggml-small.bin` (~460MB)** desde Hugging Face. Vas a ver una notificación *"CleeVoice: descargando modelo"*. Esperá; después de eso, todo es local — el audio nunca sale de tu Mac.
 
 ---
 
 ## Windows 10/11 (x64)
 
-### 1. Descargar e instalar
+### Paso 1 — Bajar
 
-1. Bajá `CleeVoice-0.1.0-x64.exe`.
-2. Doble click → SmartScreen va a mostrar *"Windows protegió tu PC"* → click en **"Más información"** → **"Ejecutar de todas formas"**. Esto es porque el .exe no está firmado con un certificado de code-signing (idem caso Mac).
-3. El instalador te deja elegir directorio. Cuando termine, marcá *"Crear acceso directo en escritorio"* si querés.
+Desde la [página del último release](https://github.com/Joinsclee/cleevoice/releases/latest), descargá **`CleeVoice-0.1.4-x64.exe`**.
 
-### 2. Permisos
+> Si todavía no está disponible, Cristhian te avisa cuando lo suba (se genera desde una PC con Windows; no se puede cross-compilar desde Mac).
 
-Windows no tiene permiso de accesibilidad como macOS. Sí te va a pedir **acceso al micrófono** la primera vez (un toast en la esquina inferior derecha). Aceptá.
+### Paso 2 — Instalar
 
-### 3. Empezar a dictar
+1. Doble click → SmartScreen muestra *"Windows protegió tu PC"* → click **"Más información"** → **"Ejecutar de todas formas"**.
+2. El instalador te deja elegir directorio.
+3. Marcá *"Crear acceso directo en escritorio"* si querés.
+
+### Paso 3 — Empezar a dictar
 
 - El ícono aparece en la **bandeja del sistema** (junto al reloj).
 - **Hotkey por defecto:** `Ctrl + Shift + Espacio`
-- Misma lógica que Mac.
-
-### 4. Primer arranque: descarga del modelo
-
-Idem Mac — la primera vez se baja el modelo `ggml-small.bin` (~460MB) a `%APPDATA%\cleevoice\models\`.
+- Windows pide permiso de micrófono la primera vez — aceptá.
 
 ---
 
-## Configurarla (opcional pero recomendado)
+## Configurarla (opcional)
 
 Click en el ícono → **Settings** → tenés 7 pestañas:
 
 | Pestaña | Para qué |
 |---|---|
-| **General** | Idioma de transcripción, autostart, notificaciones |
-| **Modelo** | Cambiar entre tiny/base/small/medium. Default es `small` que da buen balance velocidad/calidad para español |
-| **Cloud** | (Opcional) Pegá una API key de Groq gratis para tener cloud engine — ~3× más rápido y aún mejor calidad que local |
-| **Limpieza IA** | Activa para que Llama 3.3 le quite muletillas al texto antes de pegarlo. Requiere Cloud key configurado |
-| **Atajos** | Cambiar el hotkey si choca con otra cosa |
-| **Diccionario** | Términos que CleeVoice respeta con su capitalización (Skool, JoinsClee, GoHighLevel, MétodoCLEE, etc — ya vienen precargados) |
-| **Historial** | Todas tus transcripciones quedan acá. Buscador full-text + stats de tiempo ahorrado |
+| **General** | Idioma, autostart, notificaciones |
+| **Modelo** | Elegir tiny/base/small/medium |
+| **Cloud** | API key de Groq (gratis, ~3× más rápido) |
+| **Limpieza IA** | Llama 3.3 quita muletillas antes de pegar |
+| **Atajos** | Cambiar el hotkey |
+| **Diccionario** | Skool, JoinsClee, GoHighLevel, MétodoCLEE... ya precargados |
+| **Historial** | Tus transcripciones + tiempo ahorrado |
 
-### Cómo obtener una API key de Groq (gratis)
+### API key de Groq (gratis)
 
-1. Andá a [console.groq.com/keys](https://console.groq.com/keys)
-2. Creá una cuenta (login con Google está OK)
-3. **Create API Key** → copiala
-4. Pegala en CleeVoice → Settings → Cloud → Probar → Guardar
+1. [console.groq.com/keys](https://console.groq.com/keys) — login con Google
+2. Create API Key → copiala
+3. Settings → Cloud → pegala → Probar → Guardar
 
-Limite gratis: ~14,400 segundos de audio por día (suficiente para uso normal). Si lo superás, vuelve a engine local automáticamente.
+Límite gratis: ~14,400 segundos/día. Si lo superás, fallback automático a engine local.
+
+---
+
+## Actualizaciones
+
+CleeVoice chequea cada 4 horas si hay una versión nueva. Cuando la hay, te notifica y te ofrece descargarla automáticamente. También podés disparar el check desde el ícono → **"Buscar actualizaciones…"**.
+
+Para apps sin firma de Developer ID (como esta), el update se descarga al browser y vos arrastrás a Aplicaciones reemplazando. Hay que correr `Liberar-CleeVoice.command` (o `xattr -rd com.apple.quarantine /Applications/CleeVoice.app` en Terminal) **una vez por update** — después la app ya no muestra diálogos.
 
 ---
 
@@ -99,17 +109,18 @@ Limite gratis: ~14,400 segundos de audio por día (suficiente para uso normal). 
 
 | Síntoma | Solución |
 |---|---|
-| No veo el ícono en la menubar | Es muy chiquito (16px). Mirá bien junto a la hora. Si tu Mac tiene notch + muchos íconos, podés moverlos con `⌘+drag` |
-| Dicto pero no aparece texto | Revisá permiso de Accesibilidad (Mac) o del Micrófono. Settings de CleeVoice → tab Historial — si está guardado pero no pegó, es accesibilidad |
-| Hotkey no responde | Otra app puede estar capturándolo. Settings → Atajos → probá `Ctrl+Alt+D` u otra combinación |
-| Quiero pasar más rápido | Activá Cloud (Groq) en Settings — tarda ~1s en vez de ~2s y la calidad es notablemente mejor |
-| Whisper escucha mal mis términos | Settings → Diccionario → agregá los nombres/términos que mencionás seguido |
+| **"Apple no ha podido verificar..."** al abrir | Doble click en `Liberar-CleeVoice.command`, o en Terminal: `xattr -rd com.apple.quarantine /Applications/CleeVoice.app` |
+| **"CleeVoice está dañado"** | Versión vieja (v0.1.0–v0.1.3). Bajá la última desde Releases y reinstalá |
+| **Dicto pero no aparece texto** | Revisá *System Settings → Privacy → Accesibilidad* → activar CleeVoice |
+| **Hotkey no responde** | Otra app está capturándolo. Settings → Atajos → cambialo |
+| **Whisper escucha mal mis términos** | Settings → Diccionario → agregá los términos exactos con su capitalización |
+| **El ícono de la menubar no aparece** | Buscá bien junto a la hora. Si tu Mac tiene notch + muchos íconos, podés moverlos con `⌘+drag` |
 
 ---
 
 ## Reportar problemas
 
-Cualquier bug, mandale screenshot + descripción a Cristhian. Los logs detallados están en:
+Mandale screenshot + descripción a Cristhian. Los logs detallados están en:
 
 - **macOS:** `~/Library/Logs/cleevoice/main.log`
 - **Windows:** `%APPDATA%\cleevoice\logs\main.log`
