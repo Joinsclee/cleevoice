@@ -1,17 +1,35 @@
-import { contextBridge } from 'electron'
+import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
 /**
- * Bridge main ↔ renderer. En Fase 0 sólo exponemos las utilidades base del toolkit
- * (versión de Electron, helpers de IPC). En las siguientes fases agregaremos:
- *   - onToggleRecording / onStartRecording / onStopRecording   (Fase 1-2)
- *   - audioReady(buffer)                                       (Fase 2)
- *   - getSettings / setSettings                                (Fase 5)
- *   - history.list / history.delete                            (Fase 8)
+ * Bridge main ↔ renderer. Crece por fases (ver ROADMAP.md):
+ *   Fase 1: onToggleRecording                                  ← ESTAMOS AQUÍ
+ *   Fase 2: audioReady(buffer)
+ *   Fase 5: getSettings / setSettings
+ *   Fase 8: history.list / history.delete
  */
+
+export interface ToggleRecordingPayload {
+  active: boolean
+}
+
+type ToggleRecordingCallback = (payload: ToggleRecordingPayload) => void
+
 const api = {
   appName: 'CleeVoice',
-  version: '0.1.0'
+  version: '0.1.0',
+
+  /**
+   * Se suscribe a los eventos start/stop del overlay que dispara el main process
+   * tras un hotkey global. Devuelve un unsubscribe para limpiar en React effects.
+   */
+  onToggleRecording(callback: ToggleRecordingCallback): () => void {
+    const handler = (_e: Electron.IpcRendererEvent, payload: ToggleRecordingPayload): void => {
+      callback(payload)
+    }
+    ipcRenderer.on('toggle-recording', handler)
+    return () => ipcRenderer.removeListener('toggle-recording', handler)
+  }
 }
 
 try {

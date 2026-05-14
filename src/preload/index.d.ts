@@ -7,9 +7,14 @@ import type { ElectronAPI } from '@electron-toolkit/preload'
  * para que el proyecto del renderer (tsconfig.web.json) no tenga que compilar
  * el preload — sólo necesita los types.
  */
+export interface ToggleRecordingPayload {
+  active: boolean
+}
+
 export interface CleeVoiceApi {
   appName: string
   version: string
+  onToggleRecording(callback: (payload: ToggleRecordingPayload) => void): () => void
 }
 
 declare global {
