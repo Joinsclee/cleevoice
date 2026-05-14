@@ -1,12 +1,10 @@
 import type { ElectronAPI } from '@electron-toolkit/preload'
 
 /**
- * Tipos del bridge expuesto en window.api.
- *
- * Mantenemos el shape duplicado intencionalmente (no `typeof` del index.ts)
- * para que el proyecto del renderer (tsconfig.web.json) no tenga que compilar
- * el preload — sólo necesita los types.
+ * Tipos del bridge expuesto en window.api. Duplicamos shape (no `typeof` del index.ts)
+ * para que el renderer no compile el preload — sólo necesita los types.
  */
+
 export interface RecordingStatePayload {
   active: boolean
 }
@@ -21,6 +19,20 @@ export interface AudioSavedResult {
   durationMs: number
 }
 
+export interface TranscribedPayload {
+  text: string
+  durationMs: number
+  engine: 'local' | 'groq'
+  model: string
+}
+
+export interface ModelDownloadPayload {
+  model: string
+  percent: number
+  receivedBytes: number
+  totalBytes: number
+}
+
 export interface CleeVoiceApi {
   appName: string
   version: string
@@ -29,6 +41,10 @@ export interface CleeVoiceApi {
   onStopRecording(callback: () => void): () => void
   audioReady(payload: AudioReadyPayload): Promise<AudioSavedResult>
   audioError(message: string): void
+  onTranscribingStarted(callback: () => void): () => void
+  onTranscribed(callback: (payload: TranscribedPayload) => void): () => void
+  onTranscribeError(callback: (message: string) => void): () => void
+  onModelDownloadProgress(callback: (payload: ModelDownloadPayload) => void): () => void
 }
 
 declare global {

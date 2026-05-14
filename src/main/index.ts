@@ -11,6 +11,8 @@ import {
   showOverlay
 } from './overlay-window'
 import { saveAndConvertWebm } from './audio'
+import { transcribeLocal } from './whisper'
+import { onDownloadProgress } from './model-downloader'
 
 // electron-log como sustituto de console.* (regla del proyecto desde Fase 1).
 log.initialize()
@@ -18,10 +20,6 @@ log.transports.file.level = 'info'
 log.transports.console.level = 'debug'
 log.info('CleeVoice main process boot')
 
-/**
- * Single-instance lock: solo una CleeVoice corriendo a la vez.
- * Re-abrir la app en lugar de levantar otra instancia trae al frente la ventana de Settings.
- */
 const gotSingleInstanceLock = app.requestSingleInstanceLock()
 if (!gotSingleInstanceLock) {
   log.warn('Otra instancia de CleeVoice ya está corriendo. Saliendo.')
@@ -31,24 +29,26 @@ if (!gotSingleInstanceLock) {
 let mainWindow: BrowserWindow | null = null
 
 /**
- * FSM de grabación (Fase 2).
+ * FSM de grabación (Fase 3).
  *
- *   idle ──hotkey──▶ recording ──hotkey──▶ processing ──audio-ready──▶ idle
- *                                       │
- *                                       └── audio-error ──▶ idle
+ *   idle ─hotkey─▶ recording ─hotkey─▶ processing ─audio-ready─▶ transcribing
+ *                                          │                          │
+ *                                          └─error/timeout─▶ idle ◀──result(text)
  *
- * El estado `processing` cubre desde que pedimos al renderer detener el
- * MediaRecorder hasta que recibimos el ArrayBuffer y lo guardamos como WAV.
- * Fase 3 extenderá el camino feliz con "transcribing" y "pasting".
+ * El estado `transcribing` cubre desde que tenemos el WAV hasta que whisper.cpp
+ * devuelve texto. Fase 4 agregará "pasting" entre transcribing y idle.
  */
-type RecordingState = 'idle' | 'recording' | 'processing'
+type RecordingState = 'idle' | 'recording' | 'processing' | 'transcribing'
 let state: RecordingState = 'idle'
 let processingTimeout: NodeJS.Timeout | null = null
+let overlayHideTimeout: NodeJS.Timeout | null = null
 
-// Si el renderer del overlay no devuelve el blob en este tiempo, asumimos que
-// algo se trabó (preload roto, MediaRecorder muerto, permiso revocado a mitad)
-// y volvemos a idle con notificación. Sin esto el overlay queda fantasma para siempre.
+// Si el renderer del overlay no devuelve el blob en este tiempo, asumimos que algo se trabó.
 const PROCESSING_TIMEOUT_MS = 5000
+
+// Cuánto mostrar el texto transcrito en el overlay antes de ocultarlo (Fase 3).
+// Fase 4 desaparece este timer: el overlay se cierra apenas se pega el texto.
+const RESULT_DISPLAY_MS = 3000
 
 function setState(next: RecordingState): void {
   log.debug(`State: ${state} → ${next}`)
@@ -63,7 +63,7 @@ function setState(next: RecordingState): void {
         log.error(`Timeout en 'processing' tras ${PROCESSING_TIMEOUT_MS}ms — reset.`)
         notify(
           'Audio no llegó',
-          'El renderer no devolvió el audio a tiempo. Mirá los logs para diagnosticar.'
+          'El renderer no devolvió el audio a tiempo. Revisá los logs.'
         )
         cancelToIdle('processing timeout')
       }
@@ -97,7 +97,6 @@ function createMainWindow(): void {
     mainWindow?.show()
   })
 
-  // Forward console del renderer principal al log del main (mismo motivo que overlay).
   mainWindow.webContents.on('console-message', (_e, level, message, line, sourceId) => {
     const tag = `[main-win/${['v', 'i', 'w', 'e'][level] ?? '?'}]`
     log.info(`${tag} ${message}  (${sourceId}:${line})`)
@@ -123,7 +122,6 @@ function notify(title: string, body: string): void {
 }
 
 function ensureMicrophonePermission(): boolean {
-  // En macOS el primer getUserMedia dispara el prompt; aquí solo logueamos el status.
   if (process.platform === 'darwin') {
     const status = systemPreferences.getMediaAccessStatus('microphone')
     log.info(`Permiso de micrófono (macOS): ${status}`)
@@ -138,6 +136,13 @@ function ensureMicrophonePermission(): boolean {
   return true
 }
 
+function clearOverlayHideTimeout(): void {
+  if (overlayHideTimeout) {
+    clearTimeout(overlayHideTimeout)
+    overlayHideTimeout = null
+  }
+}
+
 function startRecording(): void {
   if (state !== 'idle') {
     log.warn(`startRecording ignorado: estado=${state}`)
@@ -145,6 +150,7 @@ function startRecording(): void {
   }
   if (!ensureMicrophonePermission()) return
 
+  clearOverlayHideTimeout()
   setState('recording')
   showOverlay()
   sendToOverlay('toggle-recording', { active: true })
@@ -161,7 +167,6 @@ function stopRecording(): void {
   sendToOverlay('toggle-recording', { active: false })
   sendToOverlay('stop-recording')
   log.info('Grabación detenida — esperando blob del renderer')
-  // El overlay sigue visible hasta que llegue 'audio-ready' o 'audio-error'.
 }
 
 function cancelToIdle(reason: string): void {
@@ -171,10 +176,49 @@ function cancelToIdle(reason: string): void {
   hideOverlay()
 }
 
+function scheduleOverlayHide(ms: number): void {
+  clearOverlayHideTimeout()
+  overlayHideTimeout = setTimeout(() => {
+    cancelToIdle('display window expirado')
+  }, ms)
+}
+
 function toggleRecording(): void {
   if (state === 'idle') startRecording()
   else if (state === 'recording') stopRecording()
   else log.debug(`toggleRecording ignorado: estado=${state}`)
+}
+
+/**
+ * Pipeline post-WAV (Fase 3 — sólo transcribe local).
+ * Fase 4: agrega paste al final. Fase 6: ramifica entre local y cloud.
+ * Fase 7: agrega cleanup con LLM antes del paste.
+ */
+async function runPostAudioPipeline(wavPath: string, audioMs: number): Promise<void> {
+  setState('transcribing')
+  sendToOverlay('transcribing-started')
+  log.info(`Transcribiendo ${wavPath} (audio ${audioMs}ms)…`)
+
+  try {
+    const result = await transcribeLocal(wavPath, { language: 'es', model: 'base' })
+    log.info(`Texto: "${result.text}"`)
+    sendToOverlay('transcribed', {
+      text: result.text,
+      durationMs: result.durationMs,
+      engine: result.engine,
+      model: result.model
+    })
+    notify('CleeVoice — Texto transcrito', result.text || '(sin texto)')
+    scheduleOverlayHide(RESULT_DISPLAY_MS)
+    setState('idle')
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    log.error('Error transcribiendo', err)
+    sendToOverlay('transcribe-error', message)
+    notify('Error al transcribir', message)
+    scheduleOverlayHide(RESULT_DISPLAY_MS)
+    setState('idle')
+  }
 }
 
 app.on('second-instance', () => {
@@ -205,12 +249,19 @@ app.whenReady().then(() => {
     }
   })
 
-  const result = registerToggleHotkey(DEFAULT_HOTKEY, toggleRecording)
-  if (!result.registered) {
-    log.error(`Hotkey ${DEFAULT_HOTKEY} no se pudo registrar: ${result.reason}`)
+  const hotkeyResult = registerToggleHotkey(DEFAULT_HOTKEY, toggleRecording)
+  if (!hotkeyResult.registered) {
+    log.error(`Hotkey ${DEFAULT_HOTKEY} no se pudo registrar: ${hotkeyResult.reason}`)
   }
 
-  // IPC: el renderer manda el blob crudo del MediaRecorder.
+  // Reenviamos progreso de descarga del modelo al overlay (UI puede mostrar barra
+  // en Fase 5 cuando exista pantalla de Settings — por ahora sólo va a logs).
+  onDownloadProgress((p) => {
+    sendToOverlay('model-download-progress', p)
+    log.info(`Modelo ${p.model}: ${p.percent}% (${p.receivedBytes}/${p.totalBytes})`)
+  })
+
+  // IPC: el renderer del overlay manda el blob crudo del MediaRecorder.
   ipcMain.handle(
     'audio-ready',
     async (
@@ -222,12 +273,9 @@ app.whenReady().then(() => {
       }
       try {
         const saved = await saveAndConvertWebm(payload.buffer)
-        // Fase 2: no transcribimos todavía. Fase 3 encadenará aquí transcribe + paste.
-        notify(
-          'Audio capturado',
-          `Duración ~${(saved.durationMs / 1000).toFixed(1)}s · ${saved.wavPath}`
-        )
-        cancelToIdle('audio guardado')
+        // Disparamos el pipeline en background; respondemos al renderer enseguida
+        // para que cierre su MediaRecorder. El pipeline maneja sus propios errores.
+        void runPostAudioPipeline(saved.wavPath, saved.durationMs)
         return { wavPath: saved.wavPath, durationMs: saved.durationMs }
       } catch (err) {
         log.error('Error guardando/convirtiendo audio', err)

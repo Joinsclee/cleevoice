@@ -1,21 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
 
 /**
- * Overlay flotante "🎤 Grabando…".
+ * Overlay flotante "🎤 Grabando…" → "⚙️ Transcribiendo…" → texto final.
  *
- * Fase 2: el main controla los comandos start-recording / stop-recording.
- * Este componente:
- *   - Abre el micrófono con getUserMedia al recibir 'start-recording'.
- *   - Graba con MediaRecorder (webm/opus).
- *   - Al recibir 'stop-recording' detiene, junta chunks y manda el ArrayBuffer
- *     al main vía audioReady() para que lo convierta a WAV.
- *   - Mantiene un timer mm:ss y un estado visual idle/recording/processing.
+ * Estados visuales (Fase 3):
+ *   - idle:         label "CleeVoice", overlay casi invisible
+ *   - recording:    label "🎤 Grabando mm:ss", punto rojo pulsando
+ *   - processing:   label "⚙️ Procesando…", punto ámbar pulsando
+ *   - transcribing: label "📝 Transcribiendo…", punto violeta pulsando
+ *   - result:       muestra el texto transcrito (con scroll si es largo)
  */
 
-type UiState = 'idle' | 'recording' | 'processing'
+type UiState = 'idle' | 'recording' | 'processing' | 'transcribing' | 'result' | 'error'
 
 function pickMimeType(): string {
-  // Preferimos opus que es lo que mejor consume whisper.cpp tras la conversión.
   const candidates = [
     'audio/webm;codecs=opus',
     'audio/webm',
@@ -40,6 +38,8 @@ function formatTime(ms: number): string {
 export function OverlayApp(): React.JSX.Element {
   const [uiState, setUiState] = useState<UiState>('idle')
   const [elapsedMs, setElapsedMs] = useState(0)
+  const [resultText, setResultText] = useState('')
+  const [errorMsg, setErrorMsg] = useState('')
 
   const recorderRef = useRef<MediaRecorder | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -102,17 +102,18 @@ export function OverlayApp(): React.JSX.Element {
         } finally {
           chunksRef.current = []
           recorderRef.current = null
-          setElapsedMs(0)
-          setUiState('idle')
+          // No reseteamos a 'idle' acá: el main decide el siguiente estado
+          // (transcribing → result/error → idle).
         }
       }
 
       recorderRef.current = recorder
-      // Pedimos chunks de 250ms para que onstop tenga el último intervalo listo.
       recorder.start(250)
       startedAtRef.current = performance.now()
       setUiState('recording')
       setElapsedMs(0)
+      setResultText('')
+      setErrorMsg('')
       clearTimer()
       timerRef.current = setInterval(() => {
         setElapsedMs(performance.now() - startedAtRef.current)
@@ -138,11 +139,7 @@ export function OverlayApp(): React.JSX.Element {
     if (!window.api) return
 
     const offToggle = window.api.onToggleRecording((p) => {
-      // El toggle es informativo (sincroniza UI si el main decide cambiar estado
-      // sin pasar por start/stop explícitos). Los comandos reales viajan abajo.
-      if (!p.active && uiState === 'recording') {
-        endCapture()
-      }
+      if (!p.active && uiState === 'recording') endCapture()
     })
 
     const offStart = window.api.onStartRecording(() => {
@@ -153,10 +150,29 @@ export function OverlayApp(): React.JSX.Element {
       endCapture()
     })
 
+    const offTranscribing = window.api.onTranscribingStarted(() => {
+      setUiState('transcribing')
+    })
+
+    const offTranscribed = window.api.onTranscribed((payload) => {
+      setResultText(payload.text)
+      setUiState('result')
+      setElapsedMs(0)
+    })
+
+    const offError = window.api.onTranscribeError((message) => {
+      setErrorMsg(message)
+      setUiState('error')
+      setElapsedMs(0)
+    })
+
     return () => {
       offToggle()
       offStart()
       offStop()
+      offTranscribing()
+      offTranscribed()
+      offError()
       clearTimer()
       releaseStream()
     }
@@ -165,43 +181,71 @@ export function OverlayApp(): React.JSX.Element {
 
   const recording = uiState === 'recording'
   const processing = uiState === 'processing'
-  const label = recording
-    ? `🎤 Grabando ${formatTime(elapsedMs)}`
+  const transcribing = uiState === 'transcribing'
+  const showResult = uiState === 'result'
+  const showError = uiState === 'error'
+
+  let label: string
+  if (recording) label = `🎤 Grabando ${formatTime(elapsedMs)}`
+  else if (processing) label = '⚙️ Procesando audio…'
+  else if (transcribing) label = '📝 Transcribiendo…'
+  else if (showResult) label = resultText || '(sin texto detectado)'
+  else if (showError) label = `⚠️ ${errorMsg}`
+  else label = 'CleeVoice'
+
+  const dotClass = recording
+    ? 'bg-red-500'
     : processing
-      ? '⚙️ Procesando…'
-      : 'CleeVoice'
+      ? 'bg-amber-400'
+      : transcribing
+        ? 'bg-violet-400'
+        : showError
+          ? 'bg-red-400'
+          : showResult
+            ? 'bg-emerald-400'
+            : 'bg-neutral-500'
+
+  const haloClass = recording
+    ? 'bg-red-400'
+    : processing
+      ? 'bg-amber-400'
+      : transcribing
+        ? 'bg-violet-400'
+        : ''
 
   return (
-    <div className="flex h-screen w-screen items-center justify-center bg-transparent">
+    <div className="flex h-screen w-screen items-center justify-center bg-transparent p-3">
       <div
         className={
-          'flex items-center gap-3 rounded-2xl border px-5 py-3 text-white shadow-2xl backdrop-blur-xl transition-all duration-200 ' +
+          'flex max-w-full items-center gap-3 rounded-2xl border px-5 py-3 text-white shadow-2xl backdrop-blur-xl transition-all duration-200 ' +
           (recording
             ? 'scale-100 border-red-500/30 bg-neutral-900/85 opacity-100'
             : processing
               ? 'scale-100 border-amber-400/30 bg-neutral-900/85 opacity-100'
-              : 'scale-95 border-white/10 bg-neutral-900/70 opacity-80')
+              : transcribing
+                ? 'scale-100 border-violet-400/30 bg-neutral-900/85 opacity-100'
+                : showResult
+                  ? 'scale-100 border-emerald-400/30 bg-neutral-900/90 opacity-100'
+                  : showError
+                    ? 'scale-100 border-red-400/40 bg-neutral-900/90 opacity-100'
+                    : 'scale-95 border-white/10 bg-neutral-900/70 opacity-80')
         }
       >
-        <span className="relative inline-flex h-2.5 w-2.5">
-          {recording && (
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
+        <span className="relative inline-flex h-2.5 w-2.5 shrink-0">
+          {haloClass && (
+            <span className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-75 ${haloClass}`} />
           )}
-          {processing && (
-            <span className="absolute inline-flex h-full w-full animate-pulse rounded-full bg-amber-400 opacity-75" />
-          )}
-          <span
-            className={
-              'relative inline-flex h-2.5 w-2.5 rounded-full ' +
-              (recording
-                ? 'bg-red-500'
-                : processing
-                  ? 'bg-amber-400'
-                  : 'bg-neutral-500')
-            }
-          />
+          <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${dotClass}`} />
         </span>
-        <span className="text-sm font-medium tabular-nums tracking-wide">{label}</span>
+        <span
+          className={
+            'text-sm font-medium tabular-nums tracking-wide ' +
+            (showResult ? 'line-clamp-2 text-left leading-snug' : '')
+          }
+          title={showResult ? resultText : undefined}
+        >
+          {label}
+        </span>
       </div>
     </div>
   )

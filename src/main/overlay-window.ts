@@ -13,8 +13,8 @@ import log from 'electron-log/main'
  *  - Se crea una sola vez y se reusa (show/hide), no se destruye en cada disparo
  */
 
-const OVERLAY_WIDTH = 280
-const OVERLAY_HEIGHT = 100
+const OVERLAY_WIDTH = 540
+const OVERLAY_HEIGHT = 120
 const OVERLAY_MARGIN_BOTTOM = 80
 
 let overlayWin: BrowserWindow | null = null
