@@ -50,6 +50,7 @@ import {
   closeDb
 } from './db'
 import { applyDictionary } from './dictionary-corrector'
+import { setupAutoUpdater, manualCheck, openReleasesPage } from './auto-updater'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 
@@ -465,6 +466,8 @@ app.whenReady().then(() => {
   setupTray({
     onOpenSettings: () => createMainWindow(),
     onToggleRecording: toggleRecording,
+    onCheckForUpdates: manualCheck,
+    onOpenReleases: openReleasesPage,
     onQuit: () => {
       log.info('Quit desde tray menu')
       unregisterAll()
@@ -511,6 +514,9 @@ app.whenReady().then(() => {
 
   // Aplica el autostart al boot por si cambió fuera del runtime (raro pero limpio).
   app.setLoginItemSettings({ openAtLogin: getSetting('autostart') })
+
+  // Auto-updater: pega contra GitHub Releases cada 4h y al boot. Solo en empaquetado.
+  setupAutoUpdater()
 
   // Onboarding: si es la primera vez (onboarded=false), abrimos Settings para
   // que el usuario configure mic + accesibilidad antes de intentar dictar.

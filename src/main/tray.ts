@@ -31,6 +31,8 @@ function getTrayIconPath(): string {
 export interface TrayHandlers {
   onOpenSettings: () => void
   onToggleRecording: () => void
+  onCheckForUpdates: () => void
+  onOpenReleases: () => void
   onQuit: () => void
 }
 
@@ -68,6 +70,9 @@ export function rebuildMenu(handlers: TrayHandlers, engineLabel = 'Local'): void
     { type: 'separator' },
     { label: 'Iniciar / detener dictado', click: () => handlers.onToggleRecording() },
     { label: 'Abrir Settings', click: () => handlers.onOpenSettings() },
+    { type: 'separator' },
+    { label: 'Buscar actualizaciones…', click: () => handlers.onCheckForUpdates() },
+    { label: 'Ver releases en GitHub', click: () => handlers.onOpenReleases() },
     { type: 'separator' },
     { label: 'Salir CleeVoice', click: () => handlers.onQuit() }
   ])

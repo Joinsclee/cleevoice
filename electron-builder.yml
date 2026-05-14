@@ -77,9 +77,11 @@ linux:
     - AppImage
   category: Utility
 npmRebuild: false
-# Sin auto-update por ahora — distribuimos manualmente vía DMG/EXE.
-# Para activarlo: subir release a GitHub y restaurar este bloque.
-# publish:
-#   provider: github
-#   owner: JoinsClee
-#   repo: cleevoice
+# Auto-updater apunta a GitHub Releases del repo cleevoice.
+# Para repos privados, electron-builder lee GH_TOKEN del entorno al publicar
+# y embebe la URL canonical en app-update.yml para el cliente.
+publish:
+  provider: github
+  owner: Joinsclee
+  repo: cleevoice
+  releaseType: release
