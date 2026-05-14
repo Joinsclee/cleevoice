@@ -18,6 +18,10 @@ extraResources:
     to: whisper/
     filter:
       - '**/*'
+  - from: resources/icons/
+    to: icons/
+    filter:
+      - '**/*'
 mac:
   category: public.app-category.productivity
   target:
