@@ -54,8 +54,11 @@ export function setupTray(handlers: TrayHandlers): Tray {
   trayInstance = new Tray(icon)
   trayInstance.setToolTip('CleeVoice — Dictado por voz')
 
-  // Click izquierdo en el ícono = toggle del dictado (atajo rápido sin abrir menú).
-  trayInstance.on('click', () => handlers.onToggleRecording())
+  // Click izquierdo en el ícono = abrir Settings.
+  // El usuario espera ver una ventana al clickear el ícono — no que empiece a grabar.
+  // Para dictar usá el hotkey global (Cmd+Shift+Espacio) o el ítem
+  // "Iniciar / detener dictado" del menú contextual (click derecho).
+  trayInstance.on('click', () => handlers.onOpenSettings())
 
   rebuildMenu(handlers)
   log.info('Tray icon creado')

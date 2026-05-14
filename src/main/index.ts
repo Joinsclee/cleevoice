@@ -518,12 +518,25 @@ app.whenReady().then(() => {
   // Auto-updater: pega contra GitHub Releases cada 4h y al boot. Solo en empaquetado.
   setupAutoUpdater()
 
-  // Onboarding: si es la primera vez (onboarded=false), abrimos Settings para
-  // que el usuario configure mic + accesibilidad antes de intentar dictar.
-  // Fase 9 lo deja como auto-open simple; un wizard step-by-step queda para post-v1.
-  if (!getSetting('onboarded')) {
-    log.info('Primer arranque — abriendo Settings para onboarding')
+  // Política de apertura de Settings al boot:
+  //   - Si la app arrancó por autostart al login del sistema → quedarse en tray
+  //     sin robar foco. El usuario no espera ventanas cuando inicia sesión.
+  //   - Si la app la lanzó manualmente (Finder, Spotlight, Dock) → abrir Settings.
+  //     Sin esto la app "desaparece" en el tray y el usuario no sabe qué pasó.
+  //   - Override: si todavía no se hizo onboarding (primer arranque después de
+  //     instalar) → SIEMPRE abrir Settings, incluso si fue autostart, así no se
+  //     pierde el banner de bienvenida.
+  const launchInfo = app.getLoginItemSettings()
+  const wasAutoLaunched = launchInfo.wasOpenedAtLogin === true
+  const needsOnboarding = !getSetting('onboarded')
+
+  if (needsOnboarding || !wasAutoLaunched) {
+    log.info(
+      `Abriendo Settings al boot — onboarding=${needsOnboarding}, autoLaunch=${wasAutoLaunched}`
+    )
     setTimeout(() => createMainWindow(), 300)
+  } else {
+    log.info('Auto-launch al login — quedando en tray sin abrir ventana')
   }
 
   // Reenviamos progreso de descarga del modelo al overlay (UI puede mostrar barra
