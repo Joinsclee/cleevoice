@@ -1,0 +1,46 @@
+appId: com.joinsclee.cleevoice
+productName: CleeVoice
+copyright: Copyright © 2026 JoinsClee
+directories:
+  buildResources: build
+  output: dist
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+asarUnpack:
+  - resources/**
+extraResources:
+  - from: resources/whisper/
+    to: whisper/
+    filter:
+      - '**/*'
+mac:
+  category: public.app-category.productivity
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  publisherName: JoinsClee
+linux:
+  target:
+    - AppImage
+  category: Utility
+npmRebuild: false
+publish:
+  provider: github
+  owner: JoinsClee
+  repo: cleevoice
