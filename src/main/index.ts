@@ -11,7 +11,7 @@ import {
   showOverlay
 } from './overlay-window'
 import { saveAndConvertWebm } from './audio'
-import { transcribeLocal } from './whisper'
+import { transcribeLocal, prewarmWhisper } from './whisper'
 import {
   ensureModel,
   getModelPath,
@@ -462,6 +462,11 @@ app.whenReady().then(() => {
   }
 
   getOrCreateOverlay()
+
+  // Pre-cleanup del quarantine xattr + setup del backend dir para que el primer
+  // dictado no tenga latencia extra y para destrabar instalaciones via DMG sin
+  // firma Developer ID (que es nuestro caso). Ver src/main/whisper.ts.
+  prewarmWhisper()
 
   setupTray({
     onOpenSettings: () => createMainWindow(),

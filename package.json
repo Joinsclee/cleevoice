@@ -1,6 +1,6 @@
 {
   "name": "cleevoice",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Dictado por voz para todo tu sistema operativo — JoinsClee",
   "main": "./out/main/index.js",
   "author": "JoinsClee",

@@ -1,6 +1,14 @@
 import { app } from 'electron'
-import { spawn } from 'node:child_process'
-import { promises as fs, existsSync, mkdirSync, readdirSync, symlinkSync, unlinkSync } from 'node:fs'
+import { spawn, spawnSync } from 'node:child_process'
+import {
+  promises as fs,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  symlinkSync,
+  unlinkSync
+} from 'node:fs'
 import path from 'node:path'
 import log from 'electron-log/main'
 import { ensureModel, getModelPath, type WhisperModel } from './model-downloader'
@@ -18,6 +26,60 @@ import { getInitialPrompt } from './whisper-prompt'
 const MAC_GGML_BACKEND_DIR = '/tmp/cleevoice-ggml-bx'
 
 let backendDirEnsured = false
+let quarantineCleared = false
+
+/**
+ * Borra el xattr com.apple.quarantine de los binarios y libs bundleados.
+ *
+ * Cuando una app sin firma Developer ID se distribuye por DMG/internet, macOS
+ * marca todos los archivos con com.apple.quarantine. Eso bloquea:
+ *   1) El spawn del whisper-cli (a veces — depende de la versión de macOS)
+ *   2) Más crítico: el dlopen de los .so de ggml. Cuando ggml intenta cargar
+ *      los backends Metal/BLAS/CPU y todos están quarantined, dlopen falla
+ *      silenciosamente para cada uno. Resultado: ggml_backend_dev_init recibe
+ *      device==null y el binario crashea con GGML_ASSERT(device) failed.
+ *
+ * Limpiamos el xattr en runtime al primer uso. Funciona porque la app ya
+ * está aprobada por Gatekeeper (el user hizo "Abrir igualmente"), entonces
+ * tiene permiso de escribir sus propios archivos.
+ *
+ * Tambien limpiamos /tmp/cleevoice-ggml-bx porque ggml hace dlopen contra
+ * esa ruta (el patch binario). Como esos son symlinks, en realidad lo que
+ * se quarantine-a son los archivos target — limpiamos ambos por las dudas.
+ *
+ * Idempotente: si el xattr no está, el comando no falla.
+ */
+function clearQuarantineMac(): void {
+  if (process.platform !== 'darwin' || quarantineCleared) return
+  if (!app.isPackaged) {
+    // En dev no hay quarantine, skipeamos.
+    quarantineCleared = true
+    return
+  }
+
+  const targets = [
+    path.join(process.resourcesPath, 'whisper'),
+    MAC_GGML_BACKEND_DIR // por las dudas si alguno de los symlink targets terminó marcado
+  ].filter((p) => existsSync(p))
+
+  for (const target of targets) {
+    try {
+      const result = spawnSync('/usr/bin/xattr', ['-dr', 'com.apple.quarantine', target], {
+        stdio: ['ignore', 'pipe', 'pipe']
+      })
+      if (result.status === 0) {
+        log.info(`Quarantine xattr limpiado de ${target}`)
+      } else {
+        log.warn(
+          `xattr exit=${result.status} stderr=${result.stderr?.toString().slice(0, 200)}`
+        )
+      }
+    } catch (err) {
+      log.warn(`Quarantine cleanup falló en ${target}:`, err)
+    }
+  }
+  quarantineCleared = true
+}
 
 function ensureMacBackendDir(): void {
   if (process.platform !== 'darwin' || backendDirEnsured) return
@@ -35,7 +97,17 @@ function ensureMacBackendDir(): void {
       const link = path.join(MAC_GGML_BACKEND_DIR, file)
       const target = path.join(bundledLibexec, file)
       try {
-        if (existsSync(link)) unlinkSync(link)
+        // existsSync devuelve false para symlinks rotos. Usamos lstatSync
+        // para detectar la entrada de filesystem en sí, así no chocamos
+        // contra EEXIST cuando hay un symlink rojo de un build anterior.
+        let exists = false
+        try {
+          lstatSync(link)
+          exists = true
+        } catch {
+          /* no existe */
+        }
+        if (exists) unlinkSync(link)
         symlinkSync(target, link)
       } catch (err) {
         log.warn(`No se pudo symlink ${file}: ${String(err)}`)
@@ -166,8 +238,11 @@ export async function transcribeLocal(
     args.push('--prompt', effectivePrompt)
   }
 
-  // En Mac aseguramos que /tmp/cleevoice-ggml-bx exista con los backends del bundle
-  // antes de spawnear (libggml.0.dylib lo busca por path hardcoded patchado).
+  // Mac: limpieza preventiva antes de cada spawn.
+  //   1) xattr -d com.apple.quarantine — necesario para que Gatekeeper no
+  //      mate el binario en apps sin firma Developer ID.
+  //   2) /tmp/cleevoice-ggml-bx con symlinks a los backends del bundle.
+  clearQuarantineMac()
   ensureMacBackendDir()
 
   log.info(`whisper-cli ${args.map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ')}`)
@@ -222,6 +297,16 @@ function stripWhisperTimestamps(raw: string): string {
     .map((line) => line.replace(/^\[[\d:.]+\s*-->\s*[\d:.]+\]\s*/, '').trim())
     .filter((line) => line.length > 0)
     .join(' ')
+}
+
+/**
+ * Pre-warming: corre el cleanup de quarantine + setup del backend dir
+ * inmediatamente al boot, no al primer dictado. Así el primer ⌘+Shift+Espacio
+ * no tiene una latencia extra de ~100ms para limpiar xattrs.
+ */
+export function prewarmWhisper(): void {
+  clearQuarantineMac()
+  ensureMacBackendDir()
 }
 
 export { getModelPath, ensureModel, type WhisperModel }
