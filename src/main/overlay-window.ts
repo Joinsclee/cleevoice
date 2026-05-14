@@ -46,7 +46,7 @@ export function getOrCreateOverlay(): BrowserWindow {
     hasShadow: false,
     backgroundColor: '#00000000',
     webPreferences: {
-      preload: join(__dirname, '../preload/index.mjs'),
+      preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false
@@ -56,6 +56,19 @@ export function getOrCreateOverlay(): BrowserWindow {
   overlayWin.setAlwaysOnTop(true, 'screen-saver')
   overlayWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   overlayWin.setIgnoreMouseEvents(true)
+
+  // Reenvía console.* del renderer del overlay al log del main, así diagnosticamos
+  // sin abrir DevTools manualmente (la ventana es no-focusable).
+  overlayWin.webContents.on('console-message', (_e, level, message, line, sourceId) => {
+    const tag = `[overlay/${['v', 'i', 'w', 'e'][level] ?? '?'}]`
+    log.info(`${tag} ${message}  (${sourceId}:${line})`)
+  })
+  overlayWin.webContents.on('render-process-gone', (_e, details) => {
+    log.error(`Overlay renderer gone: ${details.reason} (exit=${details.exitCode})`)
+  })
+  overlayWin.webContents.on('preload-error', (_e, preloadPath, error) => {
+    log.error(`Preload error en ${preloadPath}: ${error.message}`)
+  })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     // En dev, electron-vite sirve overlay.html como subruta del mismo servidor.

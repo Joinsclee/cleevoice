@@ -43,10 +43,32 @@ let mainWindow: BrowserWindow | null = null
  */
 type RecordingState = 'idle' | 'recording' | 'processing'
 let state: RecordingState = 'idle'
+let processingTimeout: NodeJS.Timeout | null = null
+
+// Si el renderer del overlay no devuelve el blob en este tiempo, asumimos que
+// algo se trabó (preload roto, MediaRecorder muerto, permiso revocado a mitad)
+// y volvemos a idle con notificación. Sin esto el overlay queda fantasma para siempre.
+const PROCESSING_TIMEOUT_MS = 5000
 
 function setState(next: RecordingState): void {
   log.debug(`State: ${state} → ${next}`)
   state = next
+  if (processingTimeout) {
+    clearTimeout(processingTimeout)
+    processingTimeout = null
+  }
+  if (next === 'processing') {
+    processingTimeout = setTimeout(() => {
+      if (state === 'processing') {
+        log.error(`Timeout en 'processing' tras ${PROCESSING_TIMEOUT_MS}ms — reset.`)
+        notify(
+          'Audio no llegó',
+          'El renderer no devolvió el audio a tiempo. Mirá los logs para diagnosticar.'
+        )
+        cancelToIdle('processing timeout')
+      }
+    }, PROCESSING_TIMEOUT_MS)
+  }
 }
 
 function createMainWindow(): void {
@@ -64,7 +86,7 @@ function createMainWindow(): void {
     title: 'CleeVoice',
     backgroundColor: '#0b0b14',
     webPreferences: {
-      preload: join(__dirname, '../preload/index.mjs'),
+      preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false
@@ -73,6 +95,12 @@ function createMainWindow(): void {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()
+  })
+
+  // Forward console del renderer principal al log del main (mismo motivo que overlay).
+  mainWindow.webContents.on('console-message', (_e, level, message, line, sourceId) => {
+    const tag = `[main-win/${['v', 'i', 'w', 'e'][level] ?? '?'}]`
+    log.info(`${tag} ${message}  (${sourceId}:${line})`)
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
