@@ -6,10 +6,9 @@
   "author": "JoinsClee",
   "license": "MIT",
   "homepage": "https://cleevoice.joinsclee.com",
-  "type": "module",
   "scripts": {
-    "dev": "electron-vite dev",
-    "preview": "electron-vite preview",
+    "dev": "cross-env ELECTRON_RUN_AS_NODE= electron-vite dev",
+    "preview": "cross-env ELECTRON_RUN_AS_NODE= electron-vite preview",
     "build": "electron-vite build",
     "build:unpack": "electron-vite build && electron-builder --dir",
     "build:mac": "electron-vite build && electron-builder --mac",
@@ -18,7 +17,7 @@
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
-    "start": "electron-vite preview"
+    "start": "cross-env ELECTRON_RUN_AS_NODE= electron-vite preview"
   },
   "dependencies": {
     "electron-log": "^5.2.4"
@@ -31,6 +30,7 @@
     "@types/react": "^19.0.7",
     "@types/react-dom": "^19.0.3",
     "@vitejs/plugin-react": "^4.3.4",
+    "cross-env": "^10.1.0",
     "electron": "^33.3.1",
     "electron-builder": "^25.1.8",
     "electron-vite": "^3.0.0",
