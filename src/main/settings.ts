@@ -39,6 +39,8 @@ export interface CleeVoiceSettings {
   cleanupSystemPrompt: string
   /** Términos a respetar (Fase 8 los usa para post-procesar regex). */
   dictionary: string[]
+  /** True cuando el usuario completó (o saltó) el onboarding inicial. */
+  onboarded: boolean
 }
 
 const DEFAULT_DICTIONARY: string[] = [
@@ -71,7 +73,8 @@ const DEFAULTS: CleeVoiceSettings = {
   groqApiKey: '',
   customPrompt: '',
   cleanupSystemPrompt: '',
-  dictionary: DEFAULT_DICTIONARY
+  dictionary: DEFAULT_DICTIONARY,
+  onboarded: false
 }
 
 // electron-store usa @sindresorhus/conf bajo el capó; el ctor acepta defaults+name.

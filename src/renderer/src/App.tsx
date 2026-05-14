@@ -75,6 +75,13 @@ export function App(): React.JSX.Element {
         </span>
       </header>
 
+      {!settings.onboarded && (
+        <OnboardingBanner
+          hotkey={settings.hotkey}
+          onDismiss={() => void patch({ onboarded: true })}
+        />
+      )}
+
       <div className="flex flex-1">
         <nav className="w-52 shrink-0 border-r border-white/5 bg-neutral-950/40 px-3 py-4">
           <ul className="flex flex-col gap-0.5">
@@ -122,6 +129,58 @@ export function App(): React.JSX.Element {
         </section>
       </div>
     </main>
+  )
+}
+
+function OnboardingBanner({
+  hotkey,
+  onDismiss
+}: {
+  hotkey: string
+  onDismiss: () => void
+}): React.JSX.Element {
+  return (
+    <div className="border-b border-violet-500/20 bg-gradient-to-r from-violet-600/[0.12] via-blue-600/[0.08] to-violet-600/[0.12] px-6 py-5">
+      <div className="mx-auto flex max-w-3xl items-start gap-4">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-blue-600 text-lg shadow-lg shadow-violet-500/30">
+          👋
+        </div>
+        <div className="flex-1">
+          <h2 className="text-base font-semibold text-white">Bienvenido a CleeVoice</h2>
+          <p className="mt-1 text-sm leading-relaxed text-neutral-300">
+            Tres cosas antes de empezar:
+          </p>
+          <ol className="mt-2 list-decimal space-y-0.5 pl-5 text-sm text-neutral-300">
+            <li>
+              Presioná{' '}
+              <kbd className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[11px] text-neutral-100">
+                {prettyHotkey(hotkey)}
+              </kbd>{' '}
+              en cualquier app para empezar a dictar. Presionalo de nuevo para detener.
+            </li>
+            <li>
+              La primera vez macOS te va a pedir permiso de{' '}
+              <span className="text-neutral-100">micrófono</span> y{' '}
+              <span className="text-neutral-100">accesibilidad</span> (para pegar el texto
+              donde estás escribiendo). Aprobalos cuando aparezcan.
+            </li>
+            <li>
+              Querés cambiar modelo, idioma o configurar Groq cloud para más velocidad?
+              Está todo en las pestañas de la izquierda.
+            </li>
+          </ol>
+          <div className="mt-4">
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="rounded-md bg-violet-500 px-4 py-2 text-sm font-medium text-white hover:bg-violet-400"
+            >
+              Entendido, no mostrar de nuevo
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
 

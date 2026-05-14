@@ -51,6 +51,7 @@ export interface CleeVoiceSettings {
   customPrompt: string
   cleanupSystemPrompt: string
   dictionary: string[]
+  onboarded: boolean
 }
 
 export interface ModelInfo {

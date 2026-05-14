@@ -512,6 +512,14 @@ app.whenReady().then(() => {
   // Aplica el autostart al boot por si cambió fuera del runtime (raro pero limpio).
   app.setLoginItemSettings({ openAtLogin: getSetting('autostart') })
 
+  // Onboarding: si es la primera vez (onboarded=false), abrimos Settings para
+  // que el usuario configure mic + accesibilidad antes de intentar dictar.
+  // Fase 9 lo deja como auto-open simple; un wizard step-by-step queda para post-v1.
+  if (!getSetting('onboarded')) {
+    log.info('Primer arranque — abriendo Settings para onboarding')
+    setTimeout(() => createMainWindow(), 300)
+  }
+
   // Reenviamos progreso de descarga del modelo al overlay (UI puede mostrar barra
   // en Fase 5 cuando exista pantalla de Settings — por ahora sólo va a logs).
   onDownloadProgress((p) => {

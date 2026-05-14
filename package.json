@@ -9,6 +9,8 @@
   "scripts": {
     "postinstall": "electron-builder install-app-deps",
     "rebuild": "electron-rebuild -f -w better-sqlite3",
+    "icons": "node scripts/generate-app-icon.mjs && iconutil -c icns build/icon.iconset -o build/icon.icns",
+    "tray-icons": "node scripts/generate-tray-icon.mjs",
     "dev": "cross-env ELECTRON_RUN_AS_NODE= electron-vite dev",
     "preview": "cross-env ELECTRON_RUN_AS_NODE= electron-vite preview",
     "build": "electron-vite build",
