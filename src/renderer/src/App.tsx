@@ -4,12 +4,14 @@ import { GeneralTab } from './settings-tabs/GeneralTab'
 import { ModelTab } from './settings-tabs/ModelTab'
 import { HotkeyTab } from './settings-tabs/HotkeyTab'
 import { DictionaryTab } from './settings-tabs/DictionaryTab'
+import { CloudTab } from './settings-tabs/CloudTab'
 
-type Tab = 'general' | 'model' | 'hotkey' | 'dictionary'
+type Tab = 'general' | 'model' | 'cloud' | 'hotkey' | 'dictionary'
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'general', label: 'General', icon: '⚙' },
   { id: 'model', label: 'Modelo', icon: '🧠' },
+  { id: 'cloud', label: 'Cloud', icon: '☁' },
   { id: 'hotkey', label: 'Atajos', icon: '⌨' },
   { id: 'dictionary', label: 'Diccionario', icon: '📓' }
 ]
@@ -108,6 +110,7 @@ export function App(): React.JSX.Element {
           {tab === 'model' && (
             <ModelTab settings={settings} models={models} patch={patch} reload={reload} />
           )}
+          {tab === 'cloud' && <CloudTab settings={settings} patch={patch} />}
           {tab === 'hotkey' && <HotkeyTab settings={settings} patch={patch} />}
           {tab === 'dictionary' && <DictionaryTab settings={settings} patch={patch} />}
         </section>

@@ -33,6 +33,13 @@ import {
   updateSettings,
   type CleeVoiceSettings
 } from './settings'
+import {
+  encryptApiKey,
+  decryptApiKey,
+  testGroqKey,
+  transcribeWithGroq,
+  GroqError
+} from './groq'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 
@@ -255,14 +262,56 @@ async function runPostAudioPipeline(wavPath: string, audioMs: number): Promise<v
   log.info(`Transcribiendo ${wavPath} (audio ${audioMs}ms)…`)
 
   try {
-    // Settings live: el usuario puede cambiar modelo/idioma desde la UI sin reiniciar.
+    // Settings live: el usuario puede cambiar engine/modelo/idioma sin reiniciar.
     const settings = getAllSettings()
-    const result = await transcribeLocal(wavPath, {
-      language: settings.language,
-      model: settings.model,
-      // customPrompt opcional concatenado al prompt-context base (Fase 7 lo expone).
-      ...(settings.customPrompt.trim().length > 0 ? { prompt: settings.customPrompt } : {})
-    })
+    let result: {
+      text: string
+      durationMs: number
+      engine: 'local' | 'groq'
+      model: string
+    }
+
+    const customPrompt = settings.customPrompt.trim()
+    const promptOverride = customPrompt.length > 0 ? { prompt: customPrompt } : {}
+
+    // Router de engine. Si el usuario eligió Groq pero no hay API key, o si la
+    // llamada cloud falla por error retryable, caemos a Local con notificación.
+    const useGroq = settings.engine === 'groq' && settings.groqApiKey.length > 0
+    if (useGroq) {
+      const apiKey = decryptApiKey(settings.groqApiKey)
+      try {
+        result = await transcribeWithGroq(wavPath, {
+          apiKey,
+          language: settings.language,
+          ...promptOverride
+        })
+      } catch (err) {
+        if (err instanceof GroqError && err.retryable) {
+          log.warn(`Groq retryable falló (${err.status ?? '?'}). Fallback a local.`)
+          notify(
+            'Cloud no disponible',
+            'Groq no respondió a tiempo. Usando engine local para esta transcripción.'
+          )
+          result = await transcribeLocal(wavPath, {
+            language: settings.language,
+            model: settings.model,
+            ...promptOverride
+          })
+        } else {
+          throw err
+        }
+      }
+    } else {
+      if (settings.engine === 'groq' && !settings.groqApiKey) {
+        log.warn('engine=groq pero no hay API key — usando local.')
+      }
+      result = await transcribeLocal(wavPath, {
+        language: settings.language,
+        model: settings.model,
+        ...promptOverride
+      })
+    }
+
     log.info(`Texto: "${result.text}"`)
     sendToOverlay('transcribed', {
       text: result.text,
@@ -435,9 +484,17 @@ app.whenReady().then(() => {
 
   // ─── Handlers IPC de Settings (Fase 5) ────────────────────────────────────
   ipcMain.handle('settings:getAll', () => getAllSettings())
-  ipcMain.handle('settings:update', (_e, patch: Partial<CleeVoiceSettings>) =>
-    updateSettings(patch)
-  )
+  ipcMain.handle('settings:update', (_e, patch: Partial<CleeVoiceSettings>) => {
+    // Si el patch trae groqApiKey en plano (no vacío y no parece base64 largo),
+    // lo ciframos antes de persistir. La UI manda siempre la key en texto plano.
+    const safePatch = { ...patch }
+    if (typeof safePatch.groqApiKey === 'string') {
+      safePatch.groqApiKey = safePatch.groqApiKey
+        ? encryptApiKey(safePatch.groqApiKey)
+        : ''
+    }
+    return updateSettings(safePatch)
+  })
   ipcMain.handle('settings:reset', () => {
     // Reset suave: borramos sólo los campos editables; los listeners re-aplican.
     return updateSettings({
@@ -471,6 +528,16 @@ app.whenReady().then(() => {
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
     }
+  })
+
+  // ─── Handlers Groq (Fase 6) ───────────────────────────────────────────────
+  ipcMain.handle('groq:testKey', async (_e, key: string) => {
+    return testGroqKey(key)
+  })
+  // El renderer no debe ver la API key descifrada nunca (queda en main).
+  // Sólo informamos si está configurada o no.
+  ipcMain.handle('groq:hasKey', () => {
+    return getSetting('groqApiKey').length > 0
   })
 
   app.on('activate', () => {

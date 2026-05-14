@@ -119,6 +119,18 @@ const api = {
     }
   },
 
+  // ─── Groq (Fase 6) ─────────────────────────────────────────────────────────
+  groq: {
+    /** Prueba la API key contra GET /models. No la guarda. */
+    testKey(plainKey: string): Promise<{ ok: boolean; status?: number; message?: string }> {
+      return ipcRenderer.invoke('groq:testKey', plainKey)
+    },
+    /** Devuelve true/false sin exponer la key descifrada al renderer. */
+    hasKey(): Promise<boolean> {
+      return ipcRenderer.invoke('groq:hasKey')
+    }
+  },
+
   // ─── Modelos (Fase 5) ───────────────────────────────────────────────────────
   models: {
     list(): Promise<
@@ -157,5 +169,6 @@ export type {
   Engine,
   SettingsApi,
   ModelsApi,
+  GroqApi,
   PastedPayload
 } from './index.d'

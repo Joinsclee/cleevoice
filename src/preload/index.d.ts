@@ -70,6 +70,11 @@ export interface ModelsApi {
   delete(name: ModelName): Promise<{ ok: boolean; error?: string }>
 }
 
+export interface GroqApi {
+  testKey(plainKey: string): Promise<{ ok: boolean; status?: number; message?: string }>
+  hasKey(): Promise<boolean>
+}
+
 export interface CleeVoiceApi {
   appName: string
   version: string
@@ -87,6 +92,7 @@ export interface CleeVoiceApi {
   openAccessibilitySettings(): void
   settings: SettingsApi
   models: ModelsApi
+  groq: GroqApi
 }
 
 declare global {
