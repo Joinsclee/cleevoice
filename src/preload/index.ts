@@ -97,6 +97,30 @@ const api = {
       callback(payload)
     ipcRenderer.on('model-download-progress', handler)
     return () => ipcRenderer.removeListener('model-download-progress', handler)
+  },
+
+  /** El main empezó a pegar el texto en la app activa. */
+  onPastingStarted(callback: () => void): () => void {
+    const handler = (): void => callback()
+    ipcRenderer.on('pasting-started', handler)
+    return () => ipcRenderer.removeListener('pasting-started', handler)
+  },
+
+  /** Resultado del paste: ok=true si se inyectó, false si quedó en clipboard. */
+  onPasted(
+    callback: (payload: { ok: boolean; reason?: string }) => void
+  ): () => void {
+    const handler = (
+      _e: Electron.IpcRendererEvent,
+      payload: { ok: boolean; reason?: string }
+    ): void => callback(payload)
+    ipcRenderer.on('pasted', handler)
+    return () => ipcRenderer.removeListener('pasted', handler)
+  },
+
+  /** Abre el panel de Privacidad → Accesibilidad de macOS. */
+  openAccessibilitySettings(): void {
+    ipcRenderer.send('open-accessibility-settings')
   }
 }
 

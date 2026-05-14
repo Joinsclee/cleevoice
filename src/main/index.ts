@@ -13,6 +13,12 @@ import {
 import { saveAndConvertWebm } from './audio'
 import { transcribeLocal } from './whisper'
 import { onDownloadProgress } from './model-downloader'
+import {
+  pasteText,
+  hasAccessibilityPermission,
+  openAccessibilitySettings,
+  type PasteResult
+} from './paste'
 
 // electron-log como sustituto de console.* (regla del proyecto desde Fase 1).
 log.initialize()
@@ -38,7 +44,7 @@ let mainWindow: BrowserWindow | null = null
  * El estado `transcribing` cubre desde que tenemos el WAV hasta que whisper.cpp
  * devuelve texto. Fase 4 agregará "pasting" entre transcribing y idle.
  */
-type RecordingState = 'idle' | 'recording' | 'processing' | 'transcribing'
+type RecordingState = 'idle' | 'recording' | 'processing' | 'transcribing' | 'pasting'
 let state: RecordingState = 'idle'
 let processingTimeout: NodeJS.Timeout | null = null
 let overlayHideTimeout: NodeJS.Timeout | null = null
@@ -46,9 +52,12 @@ let overlayHideTimeout: NodeJS.Timeout | null = null
 // Si el renderer del overlay no devuelve el blob en este tiempo, asumimos que algo se trabó.
 const PROCESSING_TIMEOUT_MS = 5000
 
-// Cuánto mostrar el texto transcrito en el overlay antes de ocultarlo (Fase 3).
-// Fase 4 desaparece este timer: el overlay se cierra apenas se pega el texto.
-const RESULT_DISPLAY_MS = 3000
+// Cuánto mostrar el feedback ("✓ Pegado" o el texto si no se pudo pegar) antes
+// de ocultar el overlay. Suficiente para confirmar visualmente sin estorbar.
+const RESULT_DISPLAY_MS = 1500
+// Tiempo extra cuando NO pudimos pegar (mostramos el texto completo para que el
+// usuario lo lea o lo pegue manual con Cmd+V).
+const FALLBACK_DISPLAY_MS = 4000
 
 function setState(next: RecordingState): void {
   log.debug(`State: ${state} → ${next}`)
@@ -210,8 +219,41 @@ async function runPostAudioPipeline(wavPath: string, audioMs: number): Promise<v
       engine: result.engine,
       model: result.model
     })
-    notify('CleeVoice — Texto transcrito', result.text || '(sin texto)')
-    scheduleOverlayHide(RESULT_DISPLAY_MS)
+
+    if (!result.text.trim()) {
+      notify('CleeVoice — Sin texto', 'Whisper no detectó habla en la grabación.')
+      scheduleOverlayHide(RESULT_DISPLAY_MS)
+      setState('idle')
+      return
+    }
+
+    // Paste sintético en la app activa (Fase 4).
+    setState('pasting')
+    sendToOverlay('pasting-started')
+    let pasteResult: PasteResult
+    try {
+      pasteResult = await pasteText(result.text)
+    } catch (err) {
+      log.error('pasteText lanzó', err)
+      pasteResult = { pasted: false, reason: 'applescript-error' }
+    }
+
+    if (pasteResult.pasted) {
+      log.info('Texto pegado en la app activa.')
+      sendToOverlay('pasted', { ok: true })
+      scheduleOverlayHide(RESULT_DISPLAY_MS)
+    } else {
+      log.warn(`Paste falló: ${pasteResult.reason} — texto disponible en clipboard.`)
+      sendToOverlay('pasted', { ok: false, reason: pasteResult.reason })
+      scheduleOverlayHide(FALLBACK_DISPLAY_MS)
+
+      // Si la causa fue falta de permiso de accesibilidad, abrimos el panel de
+      // Settings — la notificación + el prompt nativo + el panel abierto
+      // maximizan la chance de que el usuario lo configure en el momento.
+      if (pasteResult.reason === 'no-accessibility') {
+        openAccessibilitySettings()
+      }
+    }
     setState('idle')
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
@@ -293,6 +335,18 @@ app.whenReady().then(() => {
     notify('Error al grabar audio', message)
     cancelToIdle('audio-error desde renderer')
   })
+
+  // Si el usuario toca "Abrir permisos" en el overlay (Fase 5+ tendrá UI completa).
+  ipcMain.on('open-accessibility-settings', () => {
+    openAccessibilitySettings()
+  })
+
+  // Logueamos el estado del permiso de accesibilidad al boot — útil para diagnóstico.
+  if (process.platform === 'darwin') {
+    log.info(
+      `Permiso de accesibilidad: ${hasAccessibilityPermission() ? 'granted' : 'NO concedido'}`
+    )
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().every((w) => !w.isVisible())) {

@@ -1,17 +1,25 @@
 import { useEffect, useRef, useState } from 'react'
 
 /**
- * Overlay flotante "🎤 Grabando…" → "⚙️ Transcribiendo…" → texto final.
+ * Overlay flotante: 🎤 grabando → ⚙️ procesando → 📝 transcribiendo → ⌨️ pegando → ✓
  *
- * Estados visuales (Fase 3):
- *   - idle:         label "CleeVoice", overlay casi invisible
- *   - recording:    label "🎤 Grabando mm:ss", punto rojo pulsando
- *   - processing:   label "⚙️ Procesando…", punto ámbar pulsando
- *   - transcribing: label "📝 Transcribiendo…", punto violeta pulsando
- *   - result:       muestra el texto transcrito (con scroll si es largo)
+ * Estados (Fase 4):
+ *   - idle / recording / processing / transcribing  (igual que Fase 3)
+ *   - pasting:        breve "⌨️ Pegando…" mientras se hace Cmd+V sintético
+ *   - pasted-ok:      "✓ Pegado" en verde durante 1.5s
+ *   - pasted-fallback el texto a la vista + "presioná Cmd+V" — más tiempo
+ *   - error:          rojo con mensaje
  */
 
-type UiState = 'idle' | 'recording' | 'processing' | 'transcribing' | 'result' | 'error'
+type UiState =
+  | 'idle'
+  | 'recording'
+  | 'processing'
+  | 'transcribing'
+  | 'pasting'
+  | 'pasted-ok'
+  | 'pasted-fallback'
+  | 'error'
 
 function pickMimeType(): string {
   const candidates = [
@@ -40,6 +48,7 @@ export function OverlayApp(): React.JSX.Element {
   const [elapsedMs, setElapsedMs] = useState(0)
   const [resultText, setResultText] = useState('')
   const [errorMsg, setErrorMsg] = useState('')
+  const [pasteReason, setPasteReason] = useState<string | undefined>()
 
   const recorderRef = useRef<MediaRecorder | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -102,8 +111,6 @@ export function OverlayApp(): React.JSX.Element {
         } finally {
           chunksRef.current = []
           recorderRef.current = null
-          // No reseteamos a 'idle' acá: el main decide el siguiente estado
-          // (transcribing → result/error → idle).
         }
       }
 
@@ -114,6 +121,7 @@ export function OverlayApp(): React.JSX.Element {
       setElapsedMs(0)
       setResultText('')
       setErrorMsg('')
+      setPasteReason(undefined)
       clearTimer()
       timerRef.current = setInterval(() => {
         setElapsedMs(performance.now() - startedAtRef.current)
@@ -130,9 +138,7 @@ export function OverlayApp(): React.JSX.Element {
       setUiState('idle')
       return
     }
-    if (rec.state !== 'inactive') {
-      rec.stop()
-    }
+    if (rec.state !== 'inactive') rec.stop()
   }
 
   useEffect(() => {
@@ -156,14 +162,21 @@ export function OverlayApp(): React.JSX.Element {
 
     const offTranscribed = window.api.onTranscribed((payload) => {
       setResultText(payload.text)
-      setUiState('result')
-      setElapsedMs(0)
     })
 
     const offError = window.api.onTranscribeError((message) => {
       setErrorMsg(message)
       setUiState('error')
       setElapsedMs(0)
+    })
+
+    const offPasting = window.api.onPastingStarted(() => {
+      setUiState('pasting')
+    })
+
+    const offPasted = window.api.onPasted(({ ok, reason }) => {
+      setPasteReason(reason)
+      setUiState(ok ? 'pasted-ok' : 'pasted-fallback')
     })
 
     return () => {
@@ -173,6 +186,8 @@ export function OverlayApp(): React.JSX.Element {
       offTranscribing()
       offTranscribed()
       offError()
+      offPasting()
+      offPasted()
       clearTimer()
       releaseStream()
     }
@@ -182,15 +197,24 @@ export function OverlayApp(): React.JSX.Element {
   const recording = uiState === 'recording'
   const processing = uiState === 'processing'
   const transcribing = uiState === 'transcribing'
-  const showResult = uiState === 'result'
+  const pasting = uiState === 'pasting'
+  const pastedOk = uiState === 'pasted-ok'
+  const pastedFallback = uiState === 'pasted-fallback'
   const showError = uiState === 'error'
 
   let label: string
   if (recording) label = `🎤 Grabando ${formatTime(elapsedMs)}`
   else if (processing) label = '⚙️ Procesando audio…'
   else if (transcribing) label = '📝 Transcribiendo…'
-  else if (showResult) label = resultText || '(sin texto detectado)'
-  else if (showError) label = `⚠️ ${errorMsg}`
+  else if (pasting) label = '⌨️ Pegando…'
+  else if (pastedOk) label = '✓ Pegado'
+  else if (pastedFallback) {
+    const tip =
+      pasteReason === 'no-accessibility'
+        ? 'Activá Accesibilidad → Cmd+V para pegar'
+        : 'Texto en portapapeles · Cmd+V para pegar'
+    label = `${tip}  ·  "${resultText}"`
+  } else if (showError) label = `⚠️ ${errorMsg}`
   else label = 'CleeVoice'
 
   const dotClass = recording
@@ -199,11 +223,15 @@ export function OverlayApp(): React.JSX.Element {
       ? 'bg-amber-400'
       : transcribing
         ? 'bg-violet-400'
-        : showError
-          ? 'bg-red-400'
-          : showResult
+        : pasting
+          ? 'bg-sky-400'
+          : pastedOk
             ? 'bg-emerald-400'
-            : 'bg-neutral-500'
+            : pastedFallback
+              ? 'bg-yellow-400'
+              : showError
+                ? 'bg-red-400'
+                : 'bg-neutral-500'
 
   const haloClass = recording
     ? 'bg-red-400'
@@ -211,41 +239,56 @@ export function OverlayApp(): React.JSX.Element {
       ? 'bg-amber-400'
       : transcribing
         ? 'bg-violet-400'
-        : ''
+        : pasting
+          ? 'bg-sky-400'
+          : ''
+
+  const borderClass = recording
+    ? 'border-red-500/30'
+    : processing
+      ? 'border-amber-400/30'
+      : transcribing
+        ? 'border-violet-400/30'
+        : pasting
+          ? 'border-sky-400/30'
+          : pastedOk
+            ? 'border-emerald-400/40'
+            : pastedFallback
+              ? 'border-yellow-400/40'
+              : showError
+                ? 'border-red-400/40'
+                : 'border-white/10'
+
+  const opacityScaleClass =
+    uiState === 'idle' ? 'scale-95 opacity-80' : 'scale-100 opacity-100'
 
   return (
     <div className="flex h-screen w-screen items-center justify-center bg-transparent p-3">
       <div
-        className={
-          'flex max-w-full items-center gap-3 rounded-2xl border px-5 py-3 text-white shadow-2xl backdrop-blur-xl transition-all duration-200 ' +
-          (recording
-            ? 'scale-100 border-red-500/30 bg-neutral-900/85 opacity-100'
-            : processing
-              ? 'scale-100 border-amber-400/30 bg-neutral-900/85 opacity-100'
-              : transcribing
-                ? 'scale-100 border-violet-400/30 bg-neutral-900/85 opacity-100'
-                : showResult
-                  ? 'scale-100 border-emerald-400/30 bg-neutral-900/90 opacity-100'
-                  : showError
-                    ? 'scale-100 border-red-400/40 bg-neutral-900/90 opacity-100'
-                    : 'scale-95 border-white/10 bg-neutral-900/70 opacity-80')
-        }
+        className={`flex max-w-full items-center gap-3 rounded-2xl border bg-neutral-900/85 px-5 py-3 text-white shadow-2xl backdrop-blur-xl transition-all duration-200 ${borderClass} ${opacityScaleClass}`}
       >
         <span className="relative inline-flex h-2.5 w-2.5 shrink-0">
           {haloClass && (
-            <span className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-75 ${haloClass}`} />
+            <span
+              className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-75 ${haloClass}`}
+            />
           )}
           <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${dotClass}`} />
         </span>
         <span
           className={
             'text-sm font-medium tabular-nums tracking-wide ' +
-            (showResult ? 'line-clamp-2 text-left leading-snug' : '')
+            (pastedFallback ? 'line-clamp-2 text-left leading-snug' : '')
           }
-          title={showResult ? resultText : undefined}
+          title={pastedFallback || pastedOk ? resultText : undefined}
         >
           {label}
         </span>
+        {/*
+          No agregamos botón aquí: el overlay tiene setIgnoreMouseEvents(true)
+          (click-through para no robar foco). El main abre el panel de
+          Accesibilidad automáticamente la primera vez que falta el permiso.
+        */}
       </div>
     </div>
   )

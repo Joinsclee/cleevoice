@@ -33,6 +33,11 @@ export interface ModelDownloadPayload {
   totalBytes: number
 }
 
+export interface PastedPayload {
+  ok: boolean
+  reason?: 'no-accessibility' | 'applescript-error' | 'unsupported-platform'
+}
+
 export interface CleeVoiceApi {
   appName: string
   version: string
@@ -45,6 +50,9 @@ export interface CleeVoiceApi {
   onTranscribed(callback: (payload: TranscribedPayload) => void): () => void
   onTranscribeError(callback: (message: string) => void): () => void
   onModelDownloadProgress(callback: (payload: ModelDownloadPayload) => void): () => void
+  onPastingStarted(callback: () => void): () => void
+  onPasted(callback: (payload: PastedPayload) => void): () => void
+  openAccessibilitySettings(): void
 }
 
 declare global {
