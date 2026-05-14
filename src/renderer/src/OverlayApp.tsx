@@ -16,6 +16,7 @@ type UiState =
   | 'recording'
   | 'processing'
   | 'transcribing'
+  | 'cleaning'
   | 'pasting'
   | 'pasted-ok'
   | 'pasted-fallback'
@@ -164,6 +165,15 @@ export function OverlayApp(): React.JSX.Element {
       setResultText(payload.text)
     })
 
+    const offCleaning = window.api.onCleaningStarted(() => {
+      setUiState('cleaning')
+    })
+
+    const offCleaned = window.api.onCleaned(({ text }) => {
+      // Reemplaza el texto raw por el limpio para mostrar al final.
+      setResultText(text)
+    })
+
     const offError = window.api.onTranscribeError((message) => {
       setErrorMsg(message)
       setUiState('error')
@@ -185,6 +195,8 @@ export function OverlayApp(): React.JSX.Element {
       offStop()
       offTranscribing()
       offTranscribed()
+      offCleaning()
+      offCleaned()
       offError()
       offPasting()
       offPasted()
@@ -197,6 +209,7 @@ export function OverlayApp(): React.JSX.Element {
   const recording = uiState === 'recording'
   const processing = uiState === 'processing'
   const transcribing = uiState === 'transcribing'
+  const cleaning = uiState === 'cleaning'
   const pasting = uiState === 'pasting'
   const pastedOk = uiState === 'pasted-ok'
   const pastedFallback = uiState === 'pasted-fallback'
@@ -206,6 +219,7 @@ export function OverlayApp(): React.JSX.Element {
   if (recording) label = `🎤 Grabando ${formatTime(elapsedMs)}`
   else if (processing) label = '⚙️ Procesando audio…'
   else if (transcribing) label = '📝 Transcribiendo…'
+  else if (cleaning) label = '✨ Limpiando con IA…'
   else if (pasting) label = '⌨️ Pegando…'
   else if (pastedOk) label = '✓ Pegado'
   else if (pastedFallback) {
@@ -223,15 +237,17 @@ export function OverlayApp(): React.JSX.Element {
       ? 'bg-amber-400'
       : transcribing
         ? 'bg-violet-400'
-        : pasting
-          ? 'bg-sky-400'
-          : pastedOk
-            ? 'bg-emerald-400'
-            : pastedFallback
-              ? 'bg-yellow-400'
-              : showError
-                ? 'bg-red-400'
-                : 'bg-neutral-500'
+        : cleaning
+          ? 'bg-fuchsia-400'
+          : pasting
+            ? 'bg-sky-400'
+            : pastedOk
+              ? 'bg-emerald-400'
+              : pastedFallback
+                ? 'bg-yellow-400'
+                : showError
+                  ? 'bg-red-400'
+                  : 'bg-neutral-500'
 
   const haloClass = recording
     ? 'bg-red-400'
@@ -239,9 +255,11 @@ export function OverlayApp(): React.JSX.Element {
       ? 'bg-amber-400'
       : transcribing
         ? 'bg-violet-400'
-        : pasting
-          ? 'bg-sky-400'
-          : ''
+        : cleaning
+          ? 'bg-fuchsia-400'
+          : pasting
+            ? 'bg-sky-400'
+            : ''
 
   const borderClass = recording
     ? 'border-red-500/30'
@@ -249,15 +267,17 @@ export function OverlayApp(): React.JSX.Element {
       ? 'border-amber-400/30'
       : transcribing
         ? 'border-violet-400/30'
-        : pasting
-          ? 'border-sky-400/30'
-          : pastedOk
-            ? 'border-emerald-400/40'
-            : pastedFallback
-              ? 'border-yellow-400/40'
-              : showError
-                ? 'border-red-400/40'
-                : 'border-white/10'
+        : cleaning
+          ? 'border-fuchsia-400/30'
+          : pasting
+            ? 'border-sky-400/30'
+            : pastedOk
+              ? 'border-emerald-400/40'
+              : pastedFallback
+                ? 'border-yellow-400/40'
+                : showError
+                  ? 'border-red-400/40'
+                  : 'border-white/10'
 
   const opacityScaleClass =
     uiState === 'idle' ? 'scale-95 opacity-80' : 'scale-100 opacity-100'

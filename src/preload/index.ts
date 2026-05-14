@@ -75,6 +75,21 @@ const api = {
     ipcRenderer.on('transcribe-error', handler)
     return () => ipcRenderer.removeListener('transcribe-error', handler)
   },
+  onCleaningStarted(callback: () => void): () => void {
+    const handler = (): void => callback()
+    ipcRenderer.on('cleaning-started', handler)
+    return () => ipcRenderer.removeListener('cleaning-started', handler)
+  },
+  onCleaned(
+    callback: (payload: { text: string; durationMs: number }) => void
+  ): () => void {
+    const handler = (
+      _e: Electron.IpcRendererEvent,
+      payload: { text: string; durationMs: number }
+    ): void => callback(payload)
+    ipcRenderer.on('cleaned', handler)
+    return () => ipcRenderer.removeListener('cleaned', handler)
+  },
   onModelDownloadProgress(callback: (payload: ModelDownloadPayload) => void): () => void {
     const handler = (_e: Electron.IpcRendererEvent, payload: ModelDownloadPayload): void =>
       callback(payload)
@@ -167,6 +182,7 @@ export type {
   ModelName,
   Language,
   Engine,
+  CleanupTone,
   SettingsApi,
   ModelsApi,
   GroqApi,

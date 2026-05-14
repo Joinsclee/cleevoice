@@ -20,6 +20,7 @@
     "start": "cross-env ELECTRON_RUN_AS_NODE= electron-vite preview"
   },
   "dependencies": {
+    "active-win": "^8.2.1",
     "electron-log": "^5.2.4",
     "electron-store": "^11.0.2",
     "ffmpeg-static": "^5.3.0",

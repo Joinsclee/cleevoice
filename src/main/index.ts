@@ -40,6 +40,7 @@ import {
   transcribeWithGroq,
   GroqError
 } from './groq'
+import { cleanupText, detectActiveApp, CleanupError } from './llm-cleanup'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 
@@ -67,7 +68,13 @@ let mainWindow: BrowserWindow | null = null
  * El estado `transcribing` cubre desde que tenemos el WAV hasta que whisper.cpp
  * devuelve texto. Fase 4 agregará "pasting" entre transcribing y idle.
  */
-type RecordingState = 'idle' | 'recording' | 'processing' | 'transcribing' | 'pasting'
+type RecordingState =
+  | 'idle'
+  | 'recording'
+  | 'processing'
+  | 'transcribing'
+  | 'cleaning'
+  | 'pasting'
 let state: RecordingState = 'idle'
 let processingTimeout: NodeJS.Timeout | null = null
 let overlayHideTimeout: NodeJS.Timeout | null = null
@@ -312,7 +319,7 @@ async function runPostAudioPipeline(wavPath: string, audioMs: number): Promise<v
       })
     }
 
-    log.info(`Texto: "${result.text}"`)
+    log.info(`Texto raw: "${result.text}"`)
     sendToOverlay('transcribed', {
       text: result.text,
       durationMs: result.durationMs,
@@ -327,12 +334,49 @@ async function runPostAudioPipeline(wavPath: string, audioMs: number): Promise<v
       return
     }
 
+    // ─── Cleanup con LLM (Fase 7) ──────────────────────────────────────────
+    // Si está habilitado Y hay API key de Groq, pasamos el texto por Llama 3.3.
+    // Si falla por red/rate-limit, seguimos con el texto raw (no bloqueamos al usuario).
+    let finalText = result.text
+    if (settings.cleanupEnabled && settings.groqApiKey) {
+      setState('cleaning')
+      sendToOverlay('cleaning-started')
+      try {
+        const active = await detectActiveApp()
+        log.info(`Cleanup contexto: app="${active.name}" → ${active.context}`)
+        const cleanup = await cleanupText({
+          apiKey: decryptApiKey(settings.groqApiKey),
+          rawText: result.text,
+          language: settings.language,
+          tone: settings.cleanupTone,
+          appName: active.name,
+          appContext: active.context,
+          dictionary: settings.dictionary,
+          customSystemPrompt: settings.cleanupSystemPrompt
+        })
+        finalText = cleanup.text
+        log.info(`Texto limpio: "${finalText}"`)
+        sendToOverlay('cleaned', { text: finalText, durationMs: cleanup.durationMs })
+      } catch (err) {
+        if (err instanceof CleanupError) {
+          log.warn(`Cleanup falló (${err.status ?? '?'}): ${err.message}`)
+          notify(
+            'Limpieza con IA falló',
+            'Uso el texto sin procesar. Revisá tu key de Groq o el rate limit.'
+          )
+        } else {
+          log.error('Cleanup error inesperado', err)
+        }
+        // Seguimos con el texto raw.
+      }
+    }
+
     // Paste sintético en la app activa (Fase 4).
     setState('pasting')
     sendToOverlay('pasting-started')
     let pasteResult: PasteResult
     try {
-      pasteResult = await pasteText(result.text)
+      pasteResult = await pasteText(finalText)
     } catch (err) {
       log.error('pasteText lanzó', err)
       pasteResult = { pasted: false, reason: 'applescript-error' }

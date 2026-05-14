@@ -36,6 +36,7 @@ export interface PastedPayload {
 export type Engine = 'local' | 'groq'
 export type ModelName = 'tiny' | 'base' | 'small' | 'medium'
 export type Language = 'es' | 'en' | 'pt' | 'fr'
+export type CleanupTone = 'general' | 'profesional' | 'casual' | 'tecnico'
 
 export interface CleeVoiceSettings {
   hotkey: string
@@ -45,8 +46,10 @@ export interface CleeVoiceSettings {
   autostart: boolean
   showNotifications: boolean
   cleanupEnabled: boolean
+  cleanupTone: CleanupTone
   groqApiKey: string
   customPrompt: string
+  cleanupSystemPrompt: string
   dictionary: string[]
 }
 
@@ -86,6 +89,8 @@ export interface CleeVoiceApi {
   onTranscribingStarted(callback: () => void): () => void
   onTranscribed(callback: (payload: TranscribedPayload) => void): () => void
   onTranscribeError(callback: (message: string) => void): () => void
+  onCleaningStarted(callback: () => void): () => void
+  onCleaned(callback: (payload: { text: string; durationMs: number }) => void): () => void
   onModelDownloadProgress(callback: (payload: ModelDownloadPayload) => void): () => void
   onPastingStarted(callback: () => void): () => void
   onPasted(callback: (payload: PastedPayload) => void): () => void

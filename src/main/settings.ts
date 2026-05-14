@@ -20,6 +20,7 @@ import log from 'electron-log/main'
 export type Engine = 'local' | 'groq'
 export type ModelName = 'tiny' | 'base' | 'small' | 'medium'
 export type Language = 'es' | 'en' | 'pt' | 'fr'
+export type CleanupTone = 'general' | 'profesional' | 'casual' | 'tecnico'
 
 export interface CleeVoiceSettings {
   hotkey: string
@@ -29,10 +30,13 @@ export interface CleeVoiceSettings {
   autostart: boolean
   showNotifications: boolean
   cleanupEnabled: boolean
+  cleanupTone: CleanupTone
   /** Base64-encoded ciphertext de la API key de Groq (vacío = no configurada). */
   groqApiKey: string
-  /** Prompt custom que se concatena al prompt-context base. */
+  /** Prompt custom que se concatena al prompt-context base (Whisper). */
   customPrompt: string
+  /** Instrucciones extra para el LLM cleanup, además del system prompt base. */
+  cleanupSystemPrompt: string
   /** Términos a respetar (Fase 8 los usa para post-procesar regex). */
   dictionary: string[]
 }
@@ -63,8 +67,10 @@ const DEFAULTS: CleeVoiceSettings = {
   autostart: false,
   showNotifications: true,
   cleanupEnabled: false,
+  cleanupTone: 'general',
   groqApiKey: '',
   customPrompt: '',
+  cleanupSystemPrompt: '',
   dictionary: DEFAULT_DICTIONARY
 }
 
