@@ -31,7 +31,7 @@ function getTrayIconPath(): string {
 export interface TrayHandlers {
   onOpenSettings: () => void
   onToggleRecording: () => void
-  onCheckForUpdates: () => void
+  onCheckForUpdates: () => void | Promise<void>
   onOpenReleases: () => void
   onQuit: () => void
 }
