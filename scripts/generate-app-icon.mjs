@@ -1,19 +1,22 @@
-// Genera el ícono de la app de CleeVoice en todos los tamaños macOS/Win + Linux.
+// Ícono de la app de CleeVoice (premium).
 //
-// Diseño: rounded-square con gradiente violeta→azul (paleta JoinsClee) +
-// micrófono blanco centrado. Generado puro en node:zlib (sin deps externas)
-// para que cualquiera pueda regenerarlo sin instalar nada.
+// Diseño:
+//   - Squircle estilo Big Sur (radius 22.5% del lado)
+//   - Gradiente multi-stop violeta → azul (paleta JoinsClee), enriquecido con
+//     una sutil "luz superior" especular y un degradado inferior oscuro para
+//     dar volumen.
+//   - Ondas de sonido concéntricas detrás del micrófono (3 anillos sutiles).
+//   - Micrófono blanco con grilla horizontal en la cápsula, arco U inferior,
+//     tallo y base. Drop-shadow sutil debajo para profundidad.
+//
+// Generado puro con node:zlib (sin imagemagick, sin canvas, sin sharp) para
+// que cualquiera pueda regenerarlo con `node scripts/generate-app-icon.mjs`.
 //
 // Output:
-//   build/icon.iconset/  (10 PNGs para iconutil → .icns Mac)
-//   build/icon.icns      (después del iconutil)
-//   build/icon.png       (1024×1024 fallback genérico)
-//   build/icon-256.png   (alias para Windows .ico via electron-builder)
-//
-// Después del script, hay que correr:
-//   iconutil -c icns build/icon.iconset -o build/icon.icns
-//
-// (npm run icons hace ambos pasos).
+//   build/icon.iconset/  (10 PNGs para iconutil → .icns)
+//   build/icon.icns      (después de `npm run icons`)
+//   build/icon.png       (1024 — electron-builder fallback)
+//   build/icon-256.png   (256 — fuente para Windows .ico)
 
 import zlib from 'node:zlib'
 import fs from 'node:fs'
@@ -25,114 +28,198 @@ const ICONSET_DIR = path.resolve(__dirname, '../build/icon.iconset')
 const BUILD_DIR = path.resolve(__dirname, '../build')
 fs.mkdirSync(ICONSET_DIR, { recursive: true })
 
-// ─── Diseño ─────────────────────────────────────────────────────────────────
+// ─── Paleta ─────────────────────────────────────────────────────────────────
 
-const COLOR_VIOLET = [0x7c, 0x3a, 0xed] // gradient start
-const COLOR_BLUE = [0x25, 0x63, 0xeb] // gradient end
-const COLOR_DARK = [0x0b, 0x0b, 0x14] // shadow background
+const COLORS = {
+  // Gradiente principal del squircle (3 stops).
+  gradTop: [0x8b, 0x5c, 0xf6], // violet-500 más claro arriba
+  gradMid: [0x6d, 0x28, 0xd9], // violet-700 en medio
+  gradBot: [0x1e, 0x3a, 0x8a], // blue-900 abajo
+  // Sombra suave en bordes.
+  shadow: [0x09, 0x09, 0x14],
+  // Mic en blanco con leve tinte azulado (no #fff puro — se ve menos plano).
+  micBody: [0xf5, 0xf7, 0xff],
+  // Highlight especular superior.
+  highlight: [0xff, 0xff, 0xff]
+}
+
+// ─── Helpers de color ───────────────────────────────────────────────────────
 
 function lerp(a, b, t) {
-  return Math.round(a + (b - a) * t)
+  return Math.round(a + (b - a) * Math.max(0, Math.min(1, t)))
+}
+function lerp3(a, b, t) {
+  return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)]
+}
+function mix(base, over, alpha) {
+  return [
+    lerp(base[0], over[0], alpha),
+    lerp(base[1], over[1], alpha),
+    lerp(base[2], over[2], alpha)
+  ]
+}
+
+// ─── Geometría reusable ─────────────────────────────────────────────────────
+
+function smoothStep(edge0, edge1, x) {
+  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)))
+  return t * t * (3 - 2 * t)
 }
 
 /**
- * Devuelve [r, g, b, a] (0-255) para un pixel del ícono.
- * Composición: rounded-square con gradiente diagonal + micrófono centrado.
+ * Squircle (rounded-square) con antialias 1px en el borde.
+ * Devuelve 0..1.
  */
-function pixel(x, y, size) {
-  const u = x / size // 0..1
-  const v = y / size
-
-  // 1) rounded-square mask (corner radius = ~22.5% del tamaño = macOS style).
-  const r = size * 0.225
-  const mask = roundedSquareAlpha(x, y, size, size, r)
-  if (mask === 0) return [0, 0, 0, 0]
-
-  // 2) base color: gradiente diagonal violeta→azul.
-  const t = (u + v) / 2
-  let R = lerp(COLOR_VIOLET[0], COLOR_BLUE[0], t)
-  let G = lerp(COLOR_VIOLET[1], COLOR_BLUE[1], t)
-  let B = lerp(COLOR_VIOLET[2], COLOR_BLUE[2], t)
-
-  // 3) sutil viñeta oscura en las esquinas.
-  const cx = 0.5,
-    cy = 0.5
-  const dist = Math.hypot(u - cx, v - cy)
-  const vignette = Math.max(0, 1 - dist * 1.3)
-  R = lerp(COLOR_DARK[0], R, 0.65 + 0.35 * vignette)
-  G = lerp(COLOR_DARK[1], G, 0.65 + 0.35 * vignette)
-  B = lerp(COLOR_DARK[2], B, 0.65 + 0.35 * vignette)
-
-  // 4) micrófono blanco centrado.
-  const micMask = micAlpha(u, v)
-  if (micMask > 0) {
-    R = lerp(R, 255, micMask)
-    G = lerp(G, 255, micMask)
-    B = lerp(B, 255, micMask)
-  }
-
-  return [R, G, B, mask]
-}
-
-/**
- * Alpha de un rounded-square con esquinas redondeadas.
- * Devuelve 0..255 con antialiasing simple en el borde.
- */
-function roundedSquareAlpha(x, y, w, h, r) {
-  // Coords relativos al rect.
+function squircleAlpha(x, y, size, r) {
   let dx = 0
   if (x < r) dx = r - x
-  else if (x > w - r) dx = x - (w - r)
+  else if (x > size - r) dx = x - (size - r)
   let dy = 0
   if (y < r) dy = r - y
-  else if (y > h - r) dy = y - (h - r)
+  else if (y > size - r) dy = y - (size - r)
   const d = Math.hypot(dx, dy)
-  if (d <= r - 1) return 255
-  if (d >= r) return 0
-  return Math.round((1 - (d - (r - 1))) * 255)
+  if (d <= r - 0.5) return 1
+  if (d >= r + 0.5) return 0
+  return 1 - (d - (r - 0.5))
 }
 
 /**
- * Alpha de un micrófono estilizado centrado.
- * Coords u,v ∈ [0..1].
+ * Distancia a un rounded-rect (signed): negativa adentro, positiva afuera.
+ * Útil para hacer shapes con bordes suaves.
  */
-function micAlpha(u, v) {
-  // Cápsula (rounded rect vertical) en (0.40-0.60, 0.20-0.55).
-  const capL = 0.4,
-    capR = 0.6,
-    capT = 0.2,
-    capB = 0.55
-  if (u >= capL - 0.005 && u <= capR + 0.005 && v >= capT - 0.005 && v <= capB + 0.005) {
-    const capR2 = (capR - capL) / 2
-    const cx = (capL + capR) / 2
-    if (v < capT + capR2) {
-      const d = Math.hypot(u - cx, v - (capT + capR2))
-      if (d <= capR2 + 0.002) return Math.min(1, Math.max(0, (capR2 + 0.002 - d) / 0.004))
-      return 0
-    }
-    if (v > capB - capR2) {
-      const d = Math.hypot(u - cx, v - (capB - capR2))
-      if (d <= capR2 + 0.002) return Math.min(1, Math.max(0, (capR2 + 0.002 - d) / 0.004))
-      return 0
-    }
-    return 1
+function roundedRectSDF(x, y, cx, cy, w, h, r) {
+  const dx = Math.max(Math.abs(x - cx) - w / 2 + r, 0)
+  const dy = Math.max(Math.abs(y - cy) - h / 2 + r, 0)
+  return Math.hypot(dx, dy) - r
+}
+
+/**
+ * Distancia a un anillo (ring): negativa adentro del anillo, positiva afuera.
+ * Usado para dibujar ondas de sonido.
+ */
+function ringSDF(x, y, cx, cy, radius, thickness) {
+  const d = Math.hypot(x - cx, y - cy)
+  return Math.abs(d - radius) - thickness / 2
+}
+
+// ─── Pintado por pixel ──────────────────────────────────────────────────────
+
+/**
+ * Calcula el color RGBA final de un pixel del ícono.
+ * Coords (x, y) en pixeles; size = tamaño del ícono.
+ */
+function pixel(x, y, size) {
+  const u = x / size
+  const v = y / size
+
+  // 1) Squircle mask con antialias.
+  const r = size * 0.225
+  const sqA = squircleAlpha(x, y, size, r)
+  if (sqA <= 0) return [0, 0, 0, 0]
+
+  // 2) Color base — gradiente vertical de 3 stops.
+  let base
+  if (v < 0.5) base = lerp3(COLORS.gradTop, COLORS.gradMid, v / 0.5)
+  else base = lerp3(COLORS.gradMid, COLORS.gradBot, (v - 0.5) / 0.5)
+
+  // 3) Viñeta sutil (oscurecer hacia las esquinas).
+  const cx = 0.5
+  const cy = 0.5
+  const dist = Math.hypot(u - cx, v - cy)
+  const vignette = Math.max(0, 1 - dist * 1.4)
+  base = lerp3(COLORS.shadow, base, 0.55 + 0.45 * vignette)
+
+  // 4) Ondas de sonido concéntricas detrás del mic (3 anillos sutiles).
+  // Cada anillo aporta un blanco semitransparente.
+  for (const ring of [
+    { r: size * 0.28, t: 1.5, alpha: 0.06 },
+    { r: size * 0.36, t: 1.2, alpha: 0.045 },
+    { r: size * 0.44, t: 1.0, alpha: 0.03 }
+  ]) {
+    const d = ringSDF(x, y, size * 0.5, size * 0.5, ring.r, ring.t)
+    const a = (1 - smoothStep(-0.5, 0.5, d)) * ring.alpha
+    if (a > 0) base = mix(base, [255, 255, 255], a)
   }
 
-  // Arco U bajo la cápsula (0.30-0.70, ~0.58-0.72) — borde grueso.
-  const ax = 0.5
-  const ay = 0.58
-  const arcRx = 0.18
-  const arcRy = 0.12
-  const norm = ((u - ax) * (u - ax)) / (arcRx * arcRx) + ((v - ay) * (v - ay)) / (arcRy * arcRy)
-  if (v >= ay && norm >= 0.7 && norm <= 1.0) return 1
+  // 5) Highlight especular superior (banda blanca tenue arriba).
+  // Curva más fuerte cerca del top, fadea hacia el centro.
+  const topHighlight = smoothStep(0.0, 0.35, v) * 0.18 // peak ~ v=0
+  const topAlpha = Math.max(0, 0.18 - topHighlight)
+  if (topAlpha > 0) base = mix(base, COLORS.highlight, topAlpha)
 
-  // Tallo central (0.49-0.51, 0.70-0.80).
-  if (u >= 0.49 && u <= 0.51 && v >= 0.7 && v <= 0.8) return 1
+  // 6) Sombra inferior interna sutil (oscurece bordes inferiores).
+  const bottomShadow = (1 - smoothStep(0.55, 1.0, v)) * 0.0 + smoothStep(0.7, 1.0, v) * 0.18
+  if (bottomShadow > 0) base = mix(base, COLORS.shadow, bottomShadow)
 
-  // Base/pie (0.42-0.58, 0.79-0.82).
-  if (u >= 0.42 && u <= 0.58 && v >= 0.79 && v <= 0.82) return 1
+  // 7) Micrófono — coords centradas en (0.5, 0.5), escala respecto al tamaño.
+  const micAlpha = renderMic(x, y, size)
+  if (micAlpha > 0) {
+    // Sombra del mic (offset 2% hacia abajo, blur 4%).
+    const sx = x
+    const sy = y - size * 0.02
+    const micShadow = renderMic(sx, sy, size)
+    if (micShadow > 0) {
+      base = mix(base, COLORS.shadow, micShadow * 0.25)
+    }
+    base = mix(base, COLORS.micBody, micAlpha)
+  }
 
-  return 0
+  // 8) Recortar al squircle con antialiasing.
+  const alpha255 = Math.round(255 * sqA)
+  return [base[0], base[1], base[2], alpha255]
+}
+
+/**
+ * Devuelve 0..1 para los pixeles del micrófono.
+ * Combina: cápsula con grilla horizontal + arco U + tallo + base.
+ */
+function renderMic(x, y, size) {
+  const cx = size * 0.5
+  const cy = size * 0.5
+
+  // Cápsula: rounded-rect vertical centrado, 0.20×0.32 del tamaño aprox.
+  const capW = size * 0.21
+  const capH = size * 0.33
+  const capCy = size * 0.42
+  const capR = capW / 2
+  const capSDF = roundedRectSDF(x, y, cx, capCy, capW, capH, capR)
+  let capAlpha = 1 - smoothStep(-0.5, 0.5, capSDF)
+  if (capAlpha < 0) capAlpha = 0
+
+  // Líneas horizontales que sugieren la grilla del mic — 5 líneas equiespaciadas
+  // que "vacían" el body de la cápsula en ~30% para no perder presencia.
+  if (capAlpha > 0) {
+    const innerY = (y - (capCy - capH / 2)) / capH
+    if (innerY > 0.18 && innerY < 0.82) {
+      const lineCycle = ((innerY - 0.18) / (0.82 - 0.18)) * 5 // 5 ciclos
+      const fraction = lineCycle - Math.floor(lineCycle)
+      // Cada banda: 70% relleno, 30% vacío con suave transición.
+      const insideLine = smoothStep(0.65, 0.75, fraction) - smoothStep(0.92, 0.98, fraction)
+      capAlpha *= 1 - insideLine * 0.22
+    }
+  }
+
+  // Arco U inferior (semicírculo grueso).
+  const arcCenterY = size * 0.62
+  const arcOuter = size * 0.16
+  const arcThick = size * 0.025
+  const distArc = Math.hypot(x - cx, y - arcCenterY)
+  let arcAlpha = 0
+  if (y >= arcCenterY) {
+    arcAlpha =
+      (1 - smoothStep(arcOuter - 0.5, arcOuter + 0.5, distArc)) *
+      smoothStep(arcOuter - arcThick - 0.5, arcOuter - arcThick + 0.5, distArc)
+  }
+
+  // Tallo central (rect vertical fino).
+  const stemSDF = roundedRectSDF(x, y, cx, size * 0.745, size * 0.025, size * 0.16, size * 0.012)
+  const stemAlpha = 1 - smoothStep(-0.5, 0.5, stemSDF)
+
+  // Base (rect horizontal con esquinas redondeadas).
+  const baseSDF = roundedRectSDF(x, y, cx, size * 0.825, size * 0.18, size * 0.03, size * 0.012)
+  const baseAlpha = 1 - smoothStep(-0.5, 0.5, baseSDF)
+
+  return Math.max(capAlpha, arcAlpha, stemAlpha, baseAlpha)
 }
 
 // ─── PNG encoder mínimo ─────────────────────────────────────────────────────
@@ -160,9 +247,9 @@ function makePng(size) {
   const raw = Buffer.alloc((rowBytes + 1) * size)
   let p = 0
   for (let y = 0; y < size; y++) {
-    raw[p++] = 0
+    raw[p++] = 0 // filter type: none
     for (let x = 0; x < size; x++) {
-      const [r, g, b, a] = pixel(x, y, size)
+      const [r, g, b, a] = pixel(x + 0.5, y + 0.5, size)
       raw[p++] = r
       raw[p++] = g
       raw[p++] = b
@@ -172,12 +259,12 @@ function makePng(size) {
   const ihdr = Buffer.alloc(13)
   ihdr.writeUInt32BE(size, 0)
   ihdr.writeUInt32BE(size, 4)
-  ihdr[8] = 8
-  ihdr[9] = 6
+  ihdr[8] = 8 // bit depth
+  ihdr[9] = 6 // color type RGBA
   ihdr[10] = 0
   ihdr[11] = 0
   ihdr[12] = 0
-  const idat = zlib.deflateSync(raw, { level: 6 })
+  const idat = zlib.deflateSync(raw, { level: 9 })
   const sig = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
   return Buffer.concat([
     sig,
@@ -187,7 +274,7 @@ function makePng(size) {
   ])
 }
 
-// ─── Outputs requeridos por iconutil ────────────────────────────────────────
+// ─── Outputs ────────────────────────────────────────────────────────────────
 
 const SIZES = [
   { size: 16, name: 'icon_16x16.png' },
@@ -202,14 +289,17 @@ const SIZES = [
   { size: 1024, name: 'icon_512x512@2x.png' }
 ]
 
+console.log('Generando ícono de CleeVoice…')
 for (const { size, name } of SIZES) {
   const png = makePng(size)
   fs.writeFileSync(path.join(ICONSET_DIR, name), png)
-  console.log(`${name.padEnd(28)} ${size}×${size}  ${png.length}B`)
+  console.log(`  ${name.padEnd(28)} ${String(size).padStart(4)}px  ${(png.length / 1024).toFixed(1)}KB`)
 }
 
-// Convenience fallbacks fuera del iconset
 fs.writeFileSync(path.join(BUILD_DIR, 'icon.png'), makePng(1024))
 fs.writeFileSync(path.join(BUILD_DIR, 'icon-256.png'), makePng(256))
-console.log('build/icon.png       1024×1024 (electron-builder fallback)')
-console.log('build/icon-256.png   256×256   (Windows .ico source)')
+console.log('  build/icon.png             1024px  (electron-builder fallback)')
+console.log('  build/icon-256.png          256px  (Windows .ico source)')
+
+console.log('\n✓ Listo. Corré `iconutil -c icns build/icon.iconset -o build/icon.icns`')
+console.log('  o directamente `npm run icons`.')
