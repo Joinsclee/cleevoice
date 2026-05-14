@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, Notification, shell, systemPreferences } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { join } from 'path'
 import log from 'electron-log/main'
@@ -10,6 +10,7 @@ import {
   sendToOverlay,
   showOverlay
 } from './overlay-window'
+import { saveAndConvertWebm } from './audio'
 
 // electron-log como sustituto de console.* (regla del proyecto desde Fase 1).
 log.initialize()
@@ -29,11 +30,24 @@ if (!gotSingleInstanceLock) {
 
 let mainWindow: BrowserWindow | null = null
 
-// Estado mínimo de "estoy mostrando el overlay" para Fase 1.
-// En Fase 2 esto pasará a ser un FSM real (idle → recording → processing).
-let overlayActive = false
-let overlayAutoHideTimer: NodeJS.Timeout | null = null
-const OVERLAY_AUTO_HIDE_MS = 2000
+/**
+ * FSM de grabación (Fase 2).
+ *
+ *   idle ──hotkey──▶ recording ──hotkey──▶ processing ──audio-ready──▶ idle
+ *                                       │
+ *                                       └── audio-error ──▶ idle
+ *
+ * El estado `processing` cubre desde que pedimos al renderer detener el
+ * MediaRecorder hasta que recibimos el ArrayBuffer y lo guardamos como WAV.
+ * Fase 3 extenderá el camino feliz con "transcribing" y "pasting".
+ */
+type RecordingState = 'idle' | 'recording' | 'processing'
+let state: RecordingState = 'idle'
+
+function setState(next: RecordingState): void {
+  log.debug(`State: ${state} → ${next}`)
+  state = next
+}
 
 function createMainWindow(): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -73,38 +87,69 @@ function createMainWindow(): void {
   }
 }
 
-function startOverlaySession(): void {
-  overlayActive = true
-  showOverlay()
-  // Pequeño delay para asegurar que el renderer está listo antes del primer IPC.
-  setTimeout(() => sendToOverlay('toggle-recording', { active: true }), 0)
-  log.info('Overlay: sesión iniciada')
-
-  // Fase 1: el overlay se oculta solo a los 2s.
-  // Fase 2: este timer desaparece; el stop será explícito al soltar/presionar de nuevo.
-  if (overlayAutoHideTimer) clearTimeout(overlayAutoHideTimer)
-  overlayAutoHideTimer = setTimeout(stopOverlaySession, OVERLAY_AUTO_HIDE_MS)
+function notify(title: string, body: string): void {
+  if (Notification.isSupported()) {
+    new Notification({ title, body, silent: false }).show()
+  }
+  log.info(`Notify: ${title} — ${body}`)
 }
 
-function stopOverlaySession(): void {
-  if (!overlayActive) return
-  overlayActive = false
-  if (overlayAutoHideTimer) {
-    clearTimeout(overlayAutoHideTimer)
-    overlayAutoHideTimer = null
+function ensureMicrophonePermission(): boolean {
+  // En macOS el primer getUserMedia dispara el prompt; aquí solo logueamos el status.
+  if (process.platform === 'darwin') {
+    const status = systemPreferences.getMediaAccessStatus('microphone')
+    log.info(`Permiso de micrófono (macOS): ${status}`)
+    if (status === 'denied') {
+      notify(
+        'Permiso de micrófono denegado',
+        'Activá CleeVoice en Preferencias del Sistema → Privacidad y seguridad → Micrófono.'
+      )
+      return false
+    }
   }
+  return true
+}
+
+function startRecording(): void {
+  if (state !== 'idle') {
+    log.warn(`startRecording ignorado: estado=${state}`)
+    return
+  }
+  if (!ensureMicrophonePermission()) return
+
+  setState('recording')
+  showOverlay()
+  sendToOverlay('toggle-recording', { active: true })
+  sendToOverlay('start-recording')
+  log.info('Grabación iniciada')
+}
+
+function stopRecording(): void {
+  if (state !== 'recording') {
+    log.warn(`stopRecording ignorado: estado=${state}`)
+    return
+  }
+  setState('processing')
+  sendToOverlay('toggle-recording', { active: false })
+  sendToOverlay('stop-recording')
+  log.info('Grabación detenida — esperando blob del renderer')
+  // El overlay sigue visible hasta que llegue 'audio-ready' o 'audio-error'.
+}
+
+function cancelToIdle(reason: string): void {
+  log.warn(`Reset a idle: ${reason}`)
+  setState('idle')
   sendToOverlay('toggle-recording', { active: false })
   hideOverlay()
-  log.info('Overlay: sesión finalizada')
 }
 
-function toggleOverlay(): void {
-  if (overlayActive) stopOverlaySession()
-  else startOverlaySession()
+function toggleRecording(): void {
+  if (state === 'idle') startRecording()
+  else if (state === 'recording') stopRecording()
+  else log.debug(`toggleRecording ignorado: estado=${state}`)
 }
 
 app.on('second-instance', () => {
-  // Re-abrir Settings cuando el usuario hace click en el ícono otra vez.
   createMainWindow()
 })
 
@@ -115,18 +160,15 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  // En macOS escondemos el dock: CleeVoice vive en la menubar, no es una app "de ventana".
   if (process.platform === 'darwin') {
     app.dock?.hide()
   }
 
-  // Pre-creamos la ventana del overlay para que el primer disparo del hotkey sea instantáneo.
-  // Quedará oculta hasta que showOverlay la traiga al frente.
   getOrCreateOverlay()
 
   setupTray({
     onOpenSettings: () => createMainWindow(),
-    onToggleRecording: toggleOverlay,
+    onToggleRecording: toggleRecording,
     onQuit: () => {
       log.info('Quit desde tray menu')
       unregisterAll()
@@ -135,18 +177,46 @@ app.whenReady().then(() => {
     }
   })
 
-  const result = registerToggleHotkey(DEFAULT_HOTKEY, toggleOverlay)
+  const result = registerToggleHotkey(DEFAULT_HOTKEY, toggleRecording)
   if (!result.registered) {
     log.error(`Hotkey ${DEFAULT_HOTKEY} no se pudo registrar: ${result.reason}`)
   }
 
-  // En Fase 0 abríamos la ventana de Settings al iniciar para verificar el setup.
-  // Desde Fase 1 la app es "tray-only" — no abre ninguna ventana al arrancar.
-  // El usuario abre Settings desde el menú del tray.
+  // IPC: el renderer manda el blob crudo del MediaRecorder.
+  ipcMain.handle(
+    'audio-ready',
+    async (
+      _e,
+      payload: { buffer: ArrayBuffer; mimeType: string }
+    ): Promise<{ wavPath: string; durationMs: number }> => {
+      if (state !== 'processing') {
+        log.warn(`audio-ready llegó en estado ${state}; lo procesamos igual.`)
+      }
+      try {
+        const saved = await saveAndConvertWebm(payload.buffer)
+        // Fase 2: no transcribimos todavía. Fase 3 encadenará aquí transcribe + paste.
+        notify(
+          'Audio capturado',
+          `Duración ~${(saved.durationMs / 1000).toFixed(1)}s · ${saved.wavPath}`
+        )
+        cancelToIdle('audio guardado')
+        return { wavPath: saved.wavPath, durationMs: saved.durationMs }
+      } catch (err) {
+        log.error('Error guardando/convirtiendo audio', err)
+        notify('Error al guardar audio', String(err))
+        cancelToIdle('error de conversión')
+        throw err
+      }
+    }
+  )
+
+  ipcMain.on('audio-error', (_e, message: string) => {
+    log.error(`Renderer reportó error de audio: ${message}`)
+    notify('Error al grabar audio', message)
+    cancelToIdle('audio-error desde renderer')
+  })
 
   app.on('activate', () => {
-    // En macOS: click en el dock vuelve a abrir Settings (aunque el dock esté oculto, esto
-    // se dispara cuando se lanza la app de nuevo desde Spotlight, por ejemplo).
     if (BrowserWindow.getAllWindows().every((w) => !w.isVisible())) {
       createMainWindow()
     }
@@ -154,8 +224,6 @@ app.whenReady().then(() => {
 })
 
 // Cerrar todas las ventanas NO cierra la app — CleeVoice vive en el tray.
-// Con un handler suscrito a este evento (aunque sea vacío), Electron suprime el quit
-// automático. El usuario sale explícitamente desde el menú del tray.
 app.on('window-all-closed', () => {
   log.debug('window-all-closed: la app sigue viva en el tray')
 })

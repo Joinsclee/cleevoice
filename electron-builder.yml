@@ -13,6 +13,7 @@ files:
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
 asarUnpack:
   - resources/**
+  - node_modules/ffmpeg-static/**
 extraResources:
   - from: resources/whisper/
     to: whisper/
