@@ -6,8 +6,9 @@ import { HotkeyTab } from './settings-tabs/HotkeyTab'
 import { DictionaryTab } from './settings-tabs/DictionaryTab'
 import { CloudTab } from './settings-tabs/CloudTab'
 import { CleanupTab } from './settings-tabs/CleanupTab'
+import { HistoryTab } from './settings-tabs/HistoryTab'
 
-type Tab = 'general' | 'model' | 'cloud' | 'cleanup' | 'hotkey' | 'dictionary'
+type Tab = 'general' | 'model' | 'cloud' | 'cleanup' | 'hotkey' | 'dictionary' | 'history'
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'general', label: 'General', icon: '⚙' },
@@ -15,7 +16,8 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'cloud', label: 'Cloud', icon: '☁' },
   { id: 'cleanup', label: 'Limpieza IA', icon: '✨' },
   { id: 'hotkey', label: 'Atajos', icon: '⌨' },
-  { id: 'dictionary', label: 'Diccionario', icon: '📓' }
+  { id: 'dictionary', label: 'Diccionario', icon: '📓' },
+  { id: 'history', label: 'Historial', icon: '🕘' }
 ]
 
 export function App(): React.JSX.Element {
@@ -116,6 +118,7 @@ export function App(): React.JSX.Element {
           {tab === 'cleanup' && <CleanupTab settings={settings} patch={patch} />}
           {tab === 'hotkey' && <HotkeyTab settings={settings} patch={patch} />}
           {tab === 'dictionary' && <DictionaryTab settings={settings} patch={patch} />}
+          {tab === 'history' && <HistoryTab />}
         </section>
       </div>
     </main>

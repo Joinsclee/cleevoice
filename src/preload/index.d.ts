@@ -78,6 +78,32 @@ export interface GroqApi {
   hasKey(): Promise<boolean>
 }
 
+export interface TranscriptionRow {
+  id: number
+  created_at: number
+  duration_ms: number
+  app_name: string | null
+  raw_text: string
+  cleaned_text: string | null
+  engine: string
+  model: string
+  language: string
+}
+
+export interface HistoryStats {
+  totalCount: number
+  totalWords: number
+  totalSeconds: number
+  estimatedSavedMinutes: number
+}
+
+export interface HistoryApi {
+  list(opts?: { limit?: number; offset?: number; search?: string }): Promise<TranscriptionRow[]>
+  remove(id: number): Promise<boolean>
+  clear(): Promise<number>
+  stats(): Promise<HistoryStats>
+}
+
 export interface CleeVoiceApi {
   appName: string
   version: string
@@ -98,6 +124,7 @@ export interface CleeVoiceApi {
   settings: SettingsApi
   models: ModelsApi
   groq: GroqApi
+  history: HistoryApi
 }
 
 declare global {

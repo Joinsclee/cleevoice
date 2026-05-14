@@ -41,6 +41,15 @@ import {
   GroqError
 } from './groq'
 import { cleanupText, detectActiveApp, CleanupError } from './llm-cleanup'
+import {
+  saveTranscription,
+  listTranscriptions,
+  deleteTranscription,
+  clearTranscriptions,
+  getStats,
+  closeDb
+} from './db'
+import { applyDictionary } from './dictionary-corrector'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 
@@ -319,15 +328,19 @@ async function runPostAudioPipeline(wavPath: string, audioMs: number): Promise<v
       })
     }
 
-    log.info(`Texto raw: "${result.text}"`)
+    // Aplicamos el diccionario al texto raw como red de seguridad: corrige
+    // variantes mal escuchadas (skul → Skool, gohailevel → GoHighLevel).
+    // El cleanup con LLM (Fase 7) hace el grueso, esto es backup.
+    const rawText = applyDictionary(result.text, settings.dictionary)
+    log.info(`Texto raw: "${rawText}"`)
     sendToOverlay('transcribed', {
-      text: result.text,
+      text: rawText,
       durationMs: result.durationMs,
       engine: result.engine,
       model: result.model
     })
 
-    if (!result.text.trim()) {
+    if (!rawText.trim()) {
       notify('CleeVoice — Sin texto', 'Whisper no detectó habla en la grabación.')
       scheduleOverlayHide(RESULT_DISPLAY_MS)
       setState('idle')
@@ -337,16 +350,18 @@ async function runPostAudioPipeline(wavPath: string, audioMs: number): Promise<v
     // ─── Cleanup con LLM (Fase 7) ──────────────────────────────────────────
     // Si está habilitado Y hay API key de Groq, pasamos el texto por Llama 3.3.
     // Si falla por red/rate-limit, seguimos con el texto raw (no bloqueamos al usuario).
-    let finalText = result.text
+    let finalText = rawText
+    let activeAppName: string | null = null
     if (settings.cleanupEnabled && settings.groqApiKey) {
       setState('cleaning')
       sendToOverlay('cleaning-started')
       try {
         const active = await detectActiveApp()
+        activeAppName = active.name
         log.info(`Cleanup contexto: app="${active.name}" → ${active.context}`)
         const cleanup = await cleanupText({
           apiKey: decryptApiKey(settings.groqApiKey),
-          rawText: result.text,
+          rawText,
           language: settings.language,
           tone: settings.cleanupTone,
           appName: active.name,
@@ -354,7 +369,8 @@ async function runPostAudioPipeline(wavPath: string, audioMs: number): Promise<v
           dictionary: settings.dictionary,
           customSystemPrompt: settings.cleanupSystemPrompt
         })
-        finalText = cleanup.text
+        // Re-aplicamos el diccionario por si el LLM cambió alguna capitalización.
+        finalText = applyDictionary(cleanup.text, settings.dictionary)
         log.info(`Texto limpio: "${finalText}"`)
         sendToOverlay('cleaned', { text: finalText, durationMs: cleanup.durationMs })
       } catch (err) {
@@ -398,6 +414,26 @@ async function runPostAudioPipeline(wavPath: string, audioMs: number): Promise<v
         openAccessibilitySettings()
       }
     }
+
+    // ─── Persistir en historial (Fase 8) ───────────────────────────────────
+    // Lo hacemos al final del pipeline para incluir cleaned_text si se aplicó.
+    // Lo metemos en try/catch porque un error de DB no debe bloquear al usuario.
+    try {
+      const cleanedText = settings.cleanupEnabled && finalText !== rawText ? finalText : null
+      const id = saveTranscription({
+        durationMs: audioMs,
+        appName: activeAppName,
+        rawText,
+        cleanedText,
+        engine: result.engine,
+        model: result.model,
+        language: settings.language
+      })
+      log.debug(`Transcripción persistida #${id}`)
+    } catch (err) {
+      log.warn('No se pudo guardar en historial', err)
+    }
+
     setState('idle')
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
@@ -574,6 +610,16 @@ app.whenReady().then(() => {
     }
   })
 
+  // ─── Handlers Historial (Fase 8) ──────────────────────────────────────────
+  ipcMain.handle(
+    'history:list',
+    (_e, opts: { limit?: number; offset?: number; search?: string }) =>
+      listTranscriptions(opts)
+  )
+  ipcMain.handle('history:delete', (_e, id: number) => deleteTranscription(id))
+  ipcMain.handle('history:clear', () => clearTranscriptions())
+  ipcMain.handle('history:stats', () => getStats())
+
   // ─── Handlers Groq (Fase 6) ───────────────────────────────────────────────
   ipcMain.handle('groq:testKey', async (_e, key: string) => {
     return testGroqKey(key)
@@ -598,4 +644,5 @@ app.on('window-all-closed', () => {
 
 app.on('will-quit', () => {
   unregisterAll()
+  closeDb()
 })

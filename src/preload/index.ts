@@ -146,6 +146,27 @@ const api = {
     }
   },
 
+  // ─── Historial (Fase 8) ────────────────────────────────────────────────────
+  history: {
+    list(opts?: { limit?: number; offset?: number; search?: string }): Promise<unknown[]> {
+      return ipcRenderer.invoke('history:list', opts ?? {})
+    },
+    remove(id: number): Promise<boolean> {
+      return ipcRenderer.invoke('history:delete', id)
+    },
+    clear(): Promise<number> {
+      return ipcRenderer.invoke('history:clear')
+    },
+    stats(): Promise<{
+      totalCount: number
+      totalWords: number
+      totalSeconds: number
+      estimatedSavedMinutes: number
+    }> {
+      return ipcRenderer.invoke('history:stats')
+    }
+  },
+
   // ─── Modelos (Fase 5) ───────────────────────────────────────────────────────
   models: {
     list(): Promise<
@@ -186,5 +207,8 @@ export type {
   SettingsApi,
   ModelsApi,
   GroqApi,
+  HistoryApi,
+  HistoryStats,
+  TranscriptionRow,
   PastedPayload
 } from './index.d'
