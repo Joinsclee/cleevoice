@@ -291,10 +291,29 @@ async function runPostAudioPipeline(wavPath: string, audioMs: number): Promise<v
     const customPrompt = settings.customPrompt.trim()
     const promptOverride = customPrompt.length > 0 ? { prompt: customPrompt } : {}
 
-    // Router de engine. Si el usuario eligió Groq pero no hay API key, o si la
-    // llamada cloud falla por error retryable, caemos a Local con notificación.
-    const useGroq = settings.engine === 'groq' && settings.groqApiKey.length > 0
-    if (useGroq) {
+    // Router de engine.
+    //  - engine=groq + hay key → Groq. Fallback a local sólo si Groq es
+    //    retryable Y estamos en una plataforma donde local funciona (Windows
+    //    o Mac con brew install). En Mac empaquetado sin Developer ID el
+    //    local revienta por dlopen — preferimos error claro al usuario.
+    //  - engine=groq + sin key → error claro en overlay pidiendo configurarla.
+    //  - engine=local → local directo.
+    const wantsGroq = settings.engine === 'groq'
+
+    if (wantsGroq && !settings.groqApiKey) {
+      const msg =
+        'Configurá tu API key de Groq en Settings → Cloud para empezar a dictar (gratis en console.groq.com/keys).'
+      log.warn('engine=groq pero no hay API key configurada')
+      sendToOverlay('transcribe-error', msg)
+      notify('CleeVoice — Falta API key', msg)
+      // Abrimos Settings para que el user lo configure en el momento.
+      createMainWindow()
+      scheduleOverlayHide(RESULT_DISPLAY_MS)
+      setState('idle')
+      return
+    }
+
+    if (wantsGroq) {
       const apiKey = decryptApiKey(settings.groqApiKey)
       try {
         result = await transcribeWithGroq(wavPath, {
@@ -303,11 +322,12 @@ async function runPostAudioPipeline(wavPath: string, audioMs: number): Promise<v
           ...promptOverride
         })
       } catch (err) {
-        if (err instanceof GroqError && err.retryable) {
+        const isRetryable = err instanceof GroqError && err.retryable
+        if (isRetryable) {
           log.warn(`Groq retryable falló (${err.status ?? '?'}). Fallback a local.`)
           notify(
             'Cloud no disponible',
-            'Groq no respondió a tiempo. Usando engine local para esta transcripción.'
+            'Groq no respondió. Probando con engine local…'
           )
           result = await transcribeLocal(wavPath, {
             language: settings.language,
@@ -319,9 +339,6 @@ async function runPostAudioPipeline(wavPath: string, audioMs: number): Promise<v
         }
       }
     } else {
-      if (settings.engine === 'groq' && !settings.groqApiKey) {
-        log.warn('engine=groq pero no hay API key — usando local.')
-      }
       result = await transcribeLocal(wavPath, {
         language: settings.language,
         model: settings.model,

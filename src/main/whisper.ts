@@ -2,11 +2,12 @@ import { app } from 'electron'
 import { spawn, spawnSync } from 'node:child_process'
 import {
   promises as fs,
+  copyFileSync,
   existsSync,
   lstatSync,
   mkdirSync,
   readdirSync,
-  symlinkSync,
+  statSync,
   unlinkSync
 } from 'node:fs'
 import path from 'node:path'
@@ -18,10 +19,18 @@ import { getInitialPrompt } from './whisper-prompt'
  * En macOS, libggml.0.dylib tiene un path hardcoded donde busca sus backends
  * (.so files de CPU/Metal/BLAS). Brew lo compila con
  * /opt/homebrew/Cellar/ggml/<ver>/libexec. Nuestro script de bundling patchea
- * binariamente ese string a /tmp/cleevoice-ggml-bx — un path neutro y
- * predecible que poblamos en runtime con symlinks al bundle de la app.
+ * binariamente ese string a /tmp/cleevoice-ggml-bx — un path neutro que
+ * poblamos en runtime con COPIAS de los .so del bundle.
  *
- * Esto se ejecuta una vez al boot (idempotente).
+ * Por qué copias en lugar de symlinks: macOS Sonoma+ trata los archivos
+ * descargados de internet (DMG) con com.apple.quarantine. Cuando ggml hace
+ * dlopen() sobre un symlink que apunta a un archivo quarantined, dlopen
+ * falla aunque el symlink en sí esté en /tmp (sin quarantine). Copiando
+ * los .so a /tmp directamente, los archivos resultantes nacen sin xattr
+ * y dlopen los carga normal.
+ *
+ * Esto se ejecuta una vez al boot (idempotente). Los .so son ~6MB en total
+ * — la copia tarda < 100ms.
  */
 const MAC_GGML_BACKEND_DIR = '/tmp/cleevoice-ggml-bx'
 
@@ -64,11 +73,15 @@ function clearQuarantineMac(): void {
 
   for (const target of targets) {
     try {
-      const result = spawnSync('/usr/bin/xattr', ['-dr', 'com.apple.quarantine', target], {
+      // -c (clear) borra TODOS los xattrs incluyendo quarantine. Más agresivo
+      // que -d com.apple.quarantine pero más confiable: a veces macOS pone
+      // varios xattrs relacionados (com.apple.macl, com.apple.lastuseddate)
+      // que también pueden interferir con dlopen en apps no notarizadas.
+      const result = spawnSync('/usr/bin/xattr', ['-cr', target], {
         stdio: ['ignore', 'pipe', 'pipe']
       })
       if (result.status === 0) {
-        log.info(`Quarantine xattr limpiado de ${target}`)
+        log.info(`xattrs limpiados de ${target}`)
       } else {
         log.warn(
           `xattr exit=${result.status} stderr=${result.stderr?.toString().slice(0, 200)}`
@@ -92,29 +105,52 @@ function ensureMacBackendDir(): void {
 
   try {
     mkdirSync(MAC_GGML_BACKEND_DIR, { recursive: true })
+    let copied = 0
+    let skipped = 0
     for (const file of readdirSync(bundledLibexec)) {
       if (!file.endsWith('.so')) continue
-      const link = path.join(MAC_GGML_BACKEND_DIR, file)
-      const target = path.join(bundledLibexec, file)
+      const dest = path.join(MAC_GGML_BACKEND_DIR, file)
+      const src = path.join(bundledLibexec, file)
       try {
-        // existsSync devuelve false para symlinks rotos. Usamos lstatSync
-        // para detectar la entrada de filesystem en sí, así no chocamos
-        // contra EEXIST cuando hay un symlink rojo de un build anterior.
-        let exists = false
+        // Si la copia ya existe y matchea el size del original, skipeamos
+        // (idempotente por re-arranque de la app sin invalidar la cache de /tmp).
+        let needsCopy = true
         try {
-          lstatSync(link)
-          exists = true
+          const destStat = lstatSync(dest)
+          const srcStat = statSync(src)
+          // Symlinks de versiones anteriores se borran y reemplazan por copia.
+          if (destStat.isSymbolicLink()) {
+            unlinkSync(dest)
+          } else if (destStat.size === srcStat.size && destStat.isFile()) {
+            needsCopy = false
+            skipped++
+          } else {
+            unlinkSync(dest)
+          }
         } catch {
-          /* no existe */
+          /* no existe — copiar */
         }
-        if (exists) unlinkSync(link)
-        symlinkSync(target, link)
+        if (needsCopy) {
+          copyFileSync(src, dest)
+          copied++
+        }
       } catch (err) {
-        log.warn(`No se pudo symlink ${file}: ${String(err)}`)
+        log.warn(`No se pudo copiar ${file}: ${String(err)}`)
       }
     }
+
+    // Limpieza agresiva de xattrs que el copy pudo heredar. -c borra TODOS
+    // los xattrs (no solo quarantine) para asegurar dlopen limpio.
+    try {
+      spawnSync('/usr/bin/xattr', ['-cr', MAC_GGML_BACKEND_DIR], { stdio: 'ignore' })
+    } catch {
+      /* best-effort */
+    }
+
     backendDirEnsured = true
-    log.info(`ggml-backends symlinkeados en ${MAC_GGML_BACKEND_DIR}`)
+    log.info(
+      `ggml-backends copiados a ${MAC_GGML_BACKEND_DIR} (copied=${copied}, skipped=${skipped})`
+    )
   } catch (err) {
     log.error(`Setup de ggml-backend-dir falló: ${String(err)}`)
   }

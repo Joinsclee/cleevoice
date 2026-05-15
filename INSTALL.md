@@ -4,104 +4,108 @@ Guía para que cualquier persona del equipo instale CleeVoice en su Mac o Window
 
 ---
 
+## Setup común: API key de Groq (1 minuto, gratis)
+
+CleeVoice usa **Groq** como motor de transcripción (Whisper-large-v3-turbo) — es más rápido y mejor calidad que las alternativas locales, y **es gratis** hasta ~4 horas de audio por día por persona.
+
+Necesitás una API key (la app te la pide al primer arranque):
+
+1. Andá a **[console.groq.com/keys](https://console.groq.com/keys)**.
+2. Login con Google (o crea cuenta).
+3. Click en **Create API Key** → ponele cualquier nombre → copia la key (empieza con `gsk_...`).
+4. Cuando abras CleeVoice por primera vez, pegala en el banner de bienvenida y dale **Guardar**.
+
+Listo, ya podés dictar.
+
+---
+
 ## macOS (Apple Silicon — M1, M2, M3, M4)
 
-> **Importante:** estas builds son solo para Mac con chip Apple Silicon. Para Intel x64 hablar con Cristhian.
+### Paso 1 — Bajar e instalar la app
 
-### Paso 1 — Bajar los dos archivos
+1. Andá a la [página del último release](https://github.com/Joinsclee/cleevoice/releases/latest).
+2. Bajá **`CleeVoice-X.Y.Z-arm64.dmg`** y **`Liberar-CleeVoice.command`**.
+3. Doble click en el DMG → arrastrá **CleeVoice** a **Aplicaciones**. Ejectá el DMG.
 
-Desde la [página del último release](https://github.com/Joinsclee/cleevoice/releases/latest):
+### Paso 2 — Liberar la app de la cuarentena de macOS
 
-1. **`CleeVoice-0.1.4-arm64.dmg`** — la app
-2. **`Liberar-CleeVoice.command`** — script para destrabar macOS (1 doble-click)
+> *Por qué:* macOS marca con "cuarentena" todo lo descargado de internet. Como CleeVoice no está firmada con un Apple Developer ID ($99/año), si abrís directo, macOS muestra *"Apple no ha podido verificar..."*. El script de abajo te evita ese diálogo.
 
-### Paso 2 — Instalar la app
+1. Doble click en **`Liberar-CleeVoice.command`**.
+2. Se abre una ventanita con un mensaje verde. Esperá 3 segundos.
+3. CleeVoice se abre solo en la menubar. **Listo para siempre.**
 
-1. Doble click en el **DMG** → arrastrá **CleeVoice** a **Aplicaciones**.
-2. Ejectá el DMG.
+> Si macOS te bloquea el `.command`, click derecho → Abrir → Abrir igual. Solo la primera vez.
 
-### Paso 3 — Liberar la app de la cuarentena de macOS
+### Paso 3 — API key de Groq
 
-> *¿Por qué?* macOS pone un atributo de "cuarentena" a todo lo que se baja de internet. Como CleeVoice no está firmada con un Apple Developer ID ($99/año), si abrís la app directo, macOS muestra *"Apple no ha podido verificar..."* y exige ir a System Settings → Privacy → "Abrir igualmente". El script de abajo te evita esa fricción.
+La ventana de Settings se abre sola con un banner pidiendo la API key.
 
-1. Doble click en **`Liberar-CleeVoice.command`** que descargaste.
-2. Se abre una ventana de terminal con un mensaje. Esperá 3 segundos.
-3. CleeVoice se abre solo. **Listo, ya no vuelve a aparecer ese diálogo.**
+- Si todavía no la tenés: seguí el [paso de Setup común](#setup-común-api-key-de-groq-1-minuto-gratis) arriba (1 min en console.groq.com).
+- Pegala en el banner → click **Guardar**. La app la valida y la cifra con Keychain de macOS.
 
-> Si macOS te bloquea el `.command` con "no se puede abrir porque viene de un desarrollador no identificado", **click derecho → Abrir → Abrir igual**. Solo una vez.
+### Paso 4 — Permisos macOS (cuando los pida)
 
-### Paso 4 — Permisos del sistema (cuando los pida)
+Cuando dictes por primera vez, macOS pide dos permisos. **Aceptá los dos**:
 
-CleeVoice pide dos permisos macOS la primera vez que los usa:
+1. **Micrófono** — diálogo nativo al primer dictado.
+2. **Accesibilidad** — para que el texto se pegue donde está el cursor. macOS abre el panel automáticamente. Activá el toggle de CleeVoice.
 
-1. **Micrófono** — al primer dictado. Aceptá.
-2. **Accesibilidad** — para que el texto se pegue donde tenés el cursor. Activá el toggle de CleeVoice en *System Settings → Privacy & Security → Accesibilidad*.
+### Paso 5 — Dictar
 
-Si saltás el de accesibilidad, igual funciona: el texto queda en el portapapeles y vos hacés `Cmd+V` manual. El overlay te lo recuerda.
-
-### Paso 5 — Empezar a dictar
-
-- CleeVoice vive en la **menubar** (esquina superior derecha, junto a la hora). NO aparece en el Dock.
-- **Hotkey por defecto:** `⌘ + Shift + Espacio`
-- Estando en cualquier app (Gmail, Slack, Notion, Skool, GoHighLevel...) presioná el hotkey → habla → presionalo de nuevo → el texto aparece pegado donde estabas escribiendo.
-
-### Primer arranque: descarga del modelo (1-2 min, una vez)
-
-La primera vez que dictes, CleeVoice baja **`ggml-small.bin` (~460MB)** desde Hugging Face. Vas a ver una notificación *"CleeVoice: descargando modelo"*. Esperá; después de eso, todo es local — el audio nunca sale de tu Mac.
+- Hotkey: **`⌘ + Shift + Espacio`**
+- Estando en cualquier app (Gmail, Slack, Notion, Skool, GoHighLevel…) presionalo → habla → presionalo de nuevo → el texto aparece pegado donde tenés el cursor.
 
 ---
 
 ## Windows 10/11 (x64)
 
-### Paso 1 — Bajar
+### Paso 1 — Bajar e instalar
 
-Desde la [página del último release](https://github.com/Joinsclee/cleevoice/releases/latest), descargá **`CleeVoice-0.1.4-x64.exe`**.
+1. Andá a la [página del último release](https://github.com/Joinsclee/cleevoice/releases/latest).
+2. Bajá **`CleeVoice-X.Y.Z-x64.exe`**.
 
-> Si todavía no está disponible, Cristhian te avisa cuando lo suba (se genera desde una PC con Windows; no se puede cross-compilar desde Mac).
+> Si todavía no está, Cristhian/Camilo lo van a subir desde una PC con Windows.
 
-### Paso 2 — Instalar
+3. Doble click → SmartScreen muestra *"Windows protegió tu PC"* → click **"Más información"** → **"Ejecutar de todas formas"**.
+4. El instalador te deja elegir directorio. Marcá *"Crear acceso directo en escritorio"* si querés.
 
-1. Doble click → SmartScreen muestra *"Windows protegió tu PC"* → click **"Más información"** → **"Ejecutar de todas formas"**.
-2. El instalador te deja elegir directorio.
-3. Marcá *"Crear acceso directo en escritorio"* si querés.
+### Paso 2 — API key de Groq (igual que en Mac)
 
-### Paso 3 — Empezar a dictar
+CleeVoice se abre con un banner pidiendo la API key. Pegala. Listo.
 
-- El ícono aparece en la **bandeja del sistema** (junto al reloj).
-- **Hotkey por defecto:** `Ctrl + Shift + Espacio`
-- Windows pide permiso de micrófono la primera vez — aceptá.
+### Paso 3 — Permiso de micrófono
+
+Windows pide acceso al micrófono al primer dictado — aceptá.
+
+### Paso 4 — Dictar
+
+- Hotkey: **`Ctrl + Shift + Espacio`**
+- Misma lógica que Mac.
 
 ---
 
 ## Configurarla (opcional)
 
-Click en el ícono → **Settings** → tenés 7 pestañas:
+Click en el ícono → **Settings** → 7 pestañas:
 
 | Pestaña | Para qué |
 |---|---|
 | **General** | Idioma, autostart, notificaciones |
-| **Modelo** | Elegir tiny/base/small/medium |
-| **Cloud** | API key de Groq (gratis, ~3× más rápido) |
-| **Limpieza IA** | Llama 3.3 quita muletillas antes de pegar |
+| **Modelo** | Cambiar a engine Local si querés (requiere `brew install whisper-cpp` en Mac) |
+| **Cloud** | Tu API key de Groq, test de conexión |
+| **Limpieza IA** | Activa para que Llama 3.3 quite muletillas antes de pegar |
 | **Atajos** | Cambiar el hotkey |
 | **Diccionario** | Skool, JoinsClee, GoHighLevel, MétodoCLEE... ya precargados |
 | **Historial** | Tus transcripciones + tiempo ahorrado |
-
-### API key de Groq (gratis)
-
-1. [console.groq.com/keys](https://console.groq.com/keys) — login con Google
-2. Create API Key → copiala
-3. Settings → Cloud → pegala → Probar → Guardar
-
-Límite gratis: ~14,400 segundos/día. Si lo superás, fallback automático a engine local.
 
 ---
 
 ## Actualizaciones
 
-CleeVoice chequea cada 4 horas si hay una versión nueva. Cuando la hay, te notifica y te ofrece descargarla automáticamente. También podés disparar el check desde el ícono → **"Buscar actualizaciones…"**.
+CleeVoice chequea cada 4 horas si hay versión nueva. Cuando hay, te notifica y te ofrece descargarla. También podés disparar el check manualmente desde el ícono → **"Buscar actualizaciones…"**.
 
-Para apps sin firma de Developer ID (como esta), el update se descarga al browser y vos arrastrás a Aplicaciones reemplazando. Hay que correr `Liberar-CleeVoice.command` (o `xattr -rd com.apple.quarantine /Applications/CleeVoice.app` en Terminal) **una vez por update** — después la app ya no muestra diálogos.
+En Mac el update abre el DMG nuevo en el browser → arrastrás a Aplicaciones → corres `Liberar-CleeVoice.command` una vez → seguís usando.
 
 ---
 
@@ -109,12 +113,13 @@ Para apps sin firma de Developer ID (como esta), el update se descarga al browse
 
 | Síntoma | Solución |
 |---|---|
-| **"Apple no ha podido verificar..."** al abrir | Doble click en `Liberar-CleeVoice.command`, o en Terminal: `xattr -rd com.apple.quarantine /Applications/CleeVoice.app` |
-| **"CleeVoice está dañado"** | Versión vieja (v0.1.0–v0.1.3). Bajá la última desde Releases y reinstalá |
-| **Dicto pero no aparece texto** | Revisá *System Settings → Privacy → Accesibilidad* → activar CleeVoice |
-| **Hotkey no responde** | Otra app está capturándolo. Settings → Atajos → cambialo |
-| **Whisper escucha mal mis términos** | Settings → Diccionario → agregá los términos exactos con su capitalización |
-| **El ícono de la menubar no aparece** | Buscá bien junto a la hora. Si tu Mac tiene notch + muchos íconos, podés moverlos con `⌘+drag` |
+| Banner rojo *"No hay API key de Groq configurada"* | Tab Cloud → pegá tu key gratis de console.groq.com/keys |
+| **"Apple no ha podido verificar..."** al abrir la app | Doble click en `Liberar-CleeVoice.command`, o en Terminal: `xattr -rd com.apple.quarantine /Applications/CleeVoice.app` |
+| **"CleeVoice está dañado"** | Versión vieja. Bajá la última desde Releases y reinstalá |
+| Dicto pero no aparece texto | *System Settings → Privacy → Accesibilidad* → activar CleeVoice |
+| Hotkey no responde | Otra app lo captura. Settings → Atajos → cambialo |
+| Whisper escucha mal mis términos | Settings → Diccionario → agregá los términos con su capitalización exacta |
+| El ícono de la menubar no aparece | Buscá bien junto a la hora. Si tu Mac tiene notch + muchos íconos, `⌘+drag` para moverlos |
 
 ---
 
@@ -124,3 +129,11 @@ Mandale screenshot + descripción a Cristhian. Los logs detallados están en:
 
 - **macOS:** `~/Library/Logs/cleevoice/main.log`
 - **Windows:** `%APPDATA%\cleevoice\logs\main.log`
+
+---
+
+## Privacidad
+
+Con engine **Groq Cloud** (default), el audio se envía a los servidores de Groq para transcribir. Ellos no entrenan modelos con tu audio (ver su [política de privacidad](https://groq.com/privacy-policy/)). El texto transcrito vuelve a tu Mac y se guarda en el historial local.
+
+Si querés **100% local** (sin internet, nada sale de tu Mac), instalá Homebrew + whisper-cpp y cambiá engine a Local en Settings → Modelo. Solo Mac por ahora.

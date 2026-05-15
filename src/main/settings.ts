@@ -63,7 +63,12 @@ const DEFAULT_DICTIONARY: string[] = [
 
 const DEFAULTS: CleeVoiceSettings = {
   hotkey: 'CommandOrControl+Shift+Space',
-  engine: 'local',
+  // Default Groq cloud: en macOS sin firma Developer ID el modo local no
+  // arranca bien (limitación de Sequoia con dlopen y libs no firmadas), y
+  // Groq es además más rápido y mejor calidad. El onboarding pide la API key
+  // como primer paso. En Windows el modo local sigue siendo viable — el user
+  // puede cambiarlo a 'local' desde Settings → Modelo.
+  engine: 'groq',
   model: 'small',
   language: 'es',
   autostart: false,
